@@ -25,7 +25,8 @@ interface MiServiceInstance {
     player_stop(deviceId?: string): Promise<unknown>;
     play_by_url(deviceId: string, url: string): Promise<unknown>;
     text_to_speech(deviceId: string, text: string): Promise<unknown>;
-    get_latest_ask(deviceId: string): Promise<unknown>;
+    get_latest_ask?: (deviceId: string) => Promise<unknown>;
+    getConversations?: (options?: { limit?: number; timestamp?: number }) => Promise<unknown>;
     account?: {
       device?: {
         hardware?: string;
@@ -284,10 +285,15 @@ export class XiaoAiClient {
     return false;
   }
 
-  public async getLatestAsk(deviceId: string): Promise<any> {
-    await this.loadModules();
-    if (this.miService?.MiNA?.get_latest_ask) {
-      return await this.miService.MiNA.get_latest_ask(deviceId);
+  public async getLatestAsk(deviceId?: string): Promise<any> {
+    await this.init(deviceId);
+    if (this.miService?.MiNA) {
+      if (typeof this.miService.MiNA.getConversations === 'function') {
+        return await this.miService.MiNA.getConversations({ limit: 2 });
+      }
+      if (typeof (this.miService.MiNA as any).get_latest_ask === 'function') {
+        return await (this.miService.MiNA as any).get_latest_ask(deviceId);
+      }
     }
     return null;
   }

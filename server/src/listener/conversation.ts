@@ -58,10 +58,10 @@ export class ConversationListener {
           }
         }
 
-        for (const dev of devices) {
-          if (!this.isRunning) break;
-          await this.checkDeviceAsk(dev.did);
-        }
+        const targetDevices = devices.slice(0, 30); // 监测活跃设备
+        await Promise.allSettled(
+          targetDevices.map(dev => this.checkDeviceAsk(dev.did))
+        );
       } catch (err: any) {
         console.warn('[ConversationListener] 轮询异常，安全终止监听:', err.message);
         this.stop();
@@ -77,7 +77,9 @@ export class ConversationListener {
       const askResult = await this.client.getLatestAsk(did);
       if (!askResult) return;
 
-      const records = Array.isArray(askResult) ? askResult : askResult?.data?.records || [];
+      const records = Array.isArray(askResult)
+        ? askResult
+        : (askResult?.records || askResult?.data?.records || []);
       if (records.length === 0) return;
 
       const latestRecord = records[0];
@@ -94,7 +96,7 @@ export class ConversationListener {
 
       if (timestamp > lastTime && query) {
         this.lastTimestamps.set(did, timestamp);
-        console.log(`[ConversationListener] 捕获到音箱 [${did}] 语音指令: "${query}"`);
+        console.log(`[ConversationListener] 🎯 捕获到音箱 [${did}] 语音指令: "${query}"`);
 
         const parsed = this.parser.parse(query);
         if (parsed.type !== 'unknown') {
