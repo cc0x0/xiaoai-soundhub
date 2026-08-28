@@ -95,6 +95,13 @@ export class XiaoAiClient {
 
   public async init(targetDid?: string): Promise<void> {
     await this.loadModules();
+
+    // 确保设备缓存已就绪
+    if (this.deviceCache.length === 0) {
+      try {
+        await this.listDevices();
+      } catch {}
+    }
     
     // 优先选取支持 MiNA 协议的真实小爱主音箱进行账号初始化
     let didToUse = targetDid || this.config.defaultDid || this.config.did || '';
