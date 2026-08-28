@@ -61,37 +61,52 @@ export class SourceEngine {
         inited: 'inited',
         updateAlert: 'updateAlert',
       },
-      request: async (url: string, options: any = {}, callback?: (err: any, resp: any, body: any) => void) => {
-        try {
-          const method = (options.method || 'GET').toUpperCase();
-          const config: AxiosRequestConfig = {
-            url,
-            method,
-            headers: options.headers || {},
-            timeout: options.timeout || 15000,
-            responseType: options.responseType || 'text',
-          };
-          if (options.data || options.body || options.form) {
-            config.data = options.data || options.body || options.form;
-          }
-
-          const resp = await axios(config);
-          const responseObj = {
-            statusCode: resp.status,
-            headers: resp.headers,
-            body: resp.data,
-          };
-
-          if (callback) {
-            callback(null, responseObj, resp.data);
-          }
-          return responseObj;
-        } catch (err: any) {
-          if (callback) {
-            callback(err, null, null);
-          }
-          throw err;
+      request: (url: string, options: any = {}, callback?: (err: any, resp: any, body: any) => void) => {
+        const method = (options.method || 'GET').toUpperCase();
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          ...(options.headers || {}),
+        };
+        const config: AxiosRequestConfig = {
+          url,
+          method,
+          headers,
+          timeout: options.timeout || 15000,
+          responseType: options.responseType || 'text',
+          validateStatus: () => true, // 允许所有状态码（403/404等作为正常响应返回给脚本处理）
+        };
+        if (options.data || options.body || options.form) {
+          config.data = options.data || options.body || options.form;
         }
+
+        const promise = axios(config)
+          .then((resp) => {
+            const responseObj = {
+              statusCode: resp.status,
+              status: resp.status,
+              headers: resp.headers,
+              body: resp.data,
+            };
+            if (callback) {
+              callback(null, responseObj, resp.data);
+            }
+            return responseObj;
+          })
+          .catch((err: any) => {
+            if (callback) {
+              callback(err, null, null);
+            }
+            return {
+              statusCode: 500,
+              status: 500,
+              headers: {},
+              body: err.message,
+            };
+          });
+
+        return () => {
+          // 返回 cancel 回调
+        };
       },
       sendAction: (action: string, data: any) => {
         if (action === 'init' || action === 'inited') {

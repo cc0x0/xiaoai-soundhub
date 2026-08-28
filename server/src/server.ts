@@ -17,6 +17,14 @@ import { ConversationListener } from './listener/conversation.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// 全局未捕获异常防御机制
+process.on('uncaughtException', (err) => {
+  console.warn('[Server] 捕获未处理异常（已安全保护）:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Server] 捕获未处理 Promise Rejection（已安全保护）:', reason);
+});
+
 // 1. 加载配置
 function loadConfig(): AppConfig {
   const configPath = path.join(__dirname, '..', 'config.json');
