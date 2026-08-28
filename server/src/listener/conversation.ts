@@ -40,18 +40,32 @@ export class ConversationListener {
 
   private async pollLoop(): Promise<void> {
     while (this.isRunning) {
+      if (this.client.isAuthSuspended) {
+        console.warn('[ConversationListener] ⚠️ 账号认证遇阻或出现风控，监听器已自动安全停机，停止后续轮询。');
+        this.stop();
+        break;
+      }
+
       try {
         const devices = this.client.getCachedDevices();
         if (devices.length === 0) {
-          await this.client.listDevices();
+          // 仅在首次尝试获取一次，若失败则安全退出
+          const freshDevices = await this.client.listDevices();
+          if (freshDevices.length === 0 || this.client.isAuthSuspended) {
+            console.warn('[ConversationListener] ⚠️ 未能获取到任何可用的小爱音箱设备，监听器已自动暂停。');
+            this.stop();
+            break;
+          }
         }
 
         for (const dev of devices) {
           if (!this.isRunning) break;
           await this.checkDeviceAsk(dev.did);
         }
-      } catch {
-        // 捕获轮询中的非致命异常
+      } catch (err: any) {
+        console.warn('[ConversationListener] 轮询异常，安全终止监听:', err.message);
+        this.stop();
+        break;
       }
 
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));

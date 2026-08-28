@@ -109,7 +109,14 @@ export class XiaoAiClient {
     this.initialized = true;
   }
 
+  public isAuthSuspended = false;
+  public authErrorMessage = '';
+
   public async listDevices(): Promise<DeviceInfo[]> {
+    if (this.isAuthSuspended) {
+      return this.deviceCache;
+    }
+
     await this.loadModules();
     if (!this.config.userId || !(this.config.passToken || this.config.password)) {
       throw new Error('请在配置中提供 userId 与 passToken（或 password）');
@@ -128,19 +135,25 @@ export class XiaoAiClient {
       relogin: false,
     };
 
-    const [MiNAClient, MIoTClient] = await this.withMiCwd(() =>
-      Promise.all([getMiNA(serviceConfig), getMIoT(serviceConfig)])
-    );
+    try {
+      const [MiNAClient, MIoTClient] = await this.withMiCwd(() =>
+        Promise.all([getMiNA(serviceConfig), getMIoT(serviceConfig)])
+      );
 
-    const [minaResult, miotResult] = await Promise.allSettled([
-      MiNAClient?.getDevices?.(),
-      MIoTClient?.getDevices?.(),
-    ]);
+      const [minaResult, miotResult] = await Promise.allSettled([
+        MiNAClient?.getDevices?.(),
+        MIoTClient?.getDevices?.(),
+      ]);
 
-    const rawMina = minaResult.status === 'fulfilled' && Array.isArray(minaResult.value) ? minaResult.value : [];
-    const rawMiot = miotResult.status === 'fulfilled' && Array.isArray(miotResult.value) ? miotResult.value : [];
+      const rawMina = minaResult.status === 'fulfilled' && Array.isArray(minaResult.value) ? minaResult.value : [];
+      const rawMiot = miotResult.status === 'fulfilled' && Array.isArray(miotResult.value) ? miotResult.value : [];
 
-    const deviceMap = new Map<string, DeviceInfo>();
+      if (rawMina.length === 0 && rawMiot.length === 0) {
+        // 如果两次均未获取到任何设备，可能遇到了验证码风控或凭证失效
+        console.warn('⚠️ [XiaomiAuth] 小米账号认证未获取到设备（可能是 passToken 过期或触发了风控验证码）。');
+      }
+
+      const deviceMap = new Map<string, DeviceInfo>();
 
     for (const dev of rawMina) {
       const did = String(dev.miotDID || dev.deviceID || dev.deviceId || '').trim();
@@ -178,6 +191,12 @@ export class XiaoAiClient {
 
     this.deviceCache = Array.from(deviceMap.values());
     return this.deviceCache;
+    } catch (err: any) {
+      this.isAuthSuspended = true;
+      this.authErrorMessage = err.message || '小米账号登录认证遇到风控或凭证失效';
+      console.warn(`[XiaomiAuth] ⚠️ 认证异常已熔断保护，停止后台循环重试:`, err.message);
+      return this.deviceCache;
+    }
   }
 
   public getCachedDevices(): DeviceInfo[] {

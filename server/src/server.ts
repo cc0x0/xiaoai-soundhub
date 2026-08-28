@@ -128,13 +128,17 @@ async function bootstrap() {
   // 如果配置了小米账号，启动语音监听
   if (config.speaker.userId && (config.speaker.passToken || config.speaker.password)) {
     try {
-      await speakerClient.listDevices();
-      console.log(`[Server] 小米账号认证成功，已拉取 ${speakerClient.getCachedDevices().length} 台音箱设备`);
-      if (config.listener.enabled) {
-        listener.start();
+      const devices = await speakerClient.listDevices();
+      if (!speakerClient.isAuthSuspended && devices.length > 0) {
+        console.log(`[Server] 小米账号认证成功，已拉取 ${devices.length} 台音箱设备`);
+        if (config.listener.enabled) {
+          listener.start();
+        }
+      } else {
+        console.warn(`[Server] ⚠️ 小米账号未成功拉取到设备或遇到安全风控，后台语音监听已安全关闭（不影响 Web 与移动端音乐投播接口）。`);
       }
     } catch (err: any) {
-      console.warn(`[Server] 首次连接小米账号警告:`, err.message);
+      console.warn(`[Server] ⚠️ 小米账号认证遇到异常，已暂停后台自动重试:`, err.message);
     }
   } else {
     console.warn(`[Server] 尚未配置小米账号凭证 (userId / passToken)，请在 config.json 或环境变量中配置`);
