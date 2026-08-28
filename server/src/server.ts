@@ -328,39 +328,42 @@ async function bootstrap() {
     }
   });
 
-  // 6. 播放控制 (暂停/继续/下一首/上一首/音量)
+  // 6. 播放控制 (暂停/继续/下一首/上一首/音量，支持单选与多选全屋音箱)
   app.post('/api/control', async (req: Request, res: Response) => {
     try {
-      const { action, did, value } = req.body;
-      const targetDid = did || config.speaker.defaultDid || '';
+      const { action, did, dids, value } = req.body;
+      let targetDids: string[] = dids || (did ? [did] : []);
+      if (targetDids.length === 0) {
+        const devices = speakerClient.getCachedDevices().filter((d) => d.source === 'MiNA');
+        if (devices.length > 0) targetDids.push(devices[0].did);
+      }
 
-      switch (action) {
-        case 'pause':
-          await speakerClient.pause({ did: targetDid });
-          break;
-        case 'resume':
-          const current = scheduler.getCurrentState(targetDid);
-          if (current) {
-            await speakerClient.playAudio(current.streamUrl, { did: targetDid });
-          }
-          break;
-        case 'stop':
-          await scheduler.stop(targetDid);
-          break;
-        case 'next':
-          await scheduler.next(targetDid);
-          break;
-        case 'prev':
-          await scheduler.prev(targetDid);
-          break;
-        case 'volume':
-          if (typeof value === 'number') {
-            await speakerClient.setVolume(value, { did: targetDid });
-          }
-          break;
-        default:
-          res.status(400).json({ ok: false, error: `Unsupported action: ${action}` });
-          return;
+      for (const targetDid of targetDids) {
+        switch (action) {
+          case 'pause':
+            await speakerClient.pause({ did: targetDid });
+            break;
+          case 'resume':
+            await scheduler.resume(targetDid);
+            break;
+          case 'stop':
+            await scheduler.stop(targetDid);
+            break;
+          case 'next':
+            await scheduler.next(targetDid);
+            break;
+          case 'prev':
+            await scheduler.prev(targetDid);
+            break;
+          case 'volume':
+            if (typeof value === 'number') {
+              await speakerClient.setVolume(value, { did: targetDid });
+            }
+            break;
+          default:
+            res.status(400).json({ ok: false, error: `Unsupported action: ${action}` });
+            return;
+        }
       }
 
       res.json({ ok: true, msg: `Action ${action} executed` } as ApiResponse);

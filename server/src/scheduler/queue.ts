@@ -62,9 +62,9 @@ export class PlayScheduler {
 
   public async resume(did: string): Promise<boolean> {
     const current = this.currentPlayState.get(did);
-    if (!current || !current.streamUrl) return false;
+    if (!current) return false;
     console.log(`[PlayScheduler] 语音播报结束，自动为音箱 [${did}] 恢复音乐播放: ${current.music.singer} - ${current.music.name}`);
-    return await this.client.playAudio(current.streamUrl, { did });
+    return await this.playCurrentIndex(did);
   }
 
   public getCurrentState(did?: string): PlayQueueItem | undefined {

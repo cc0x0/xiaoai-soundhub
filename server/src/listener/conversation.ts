@@ -57,22 +57,34 @@ export class ConversationListener {
             const latestRecord = records[0];
             const timestamp = Number(latestRecord.time || latestRecord.timestamp_ms || Date.now());
             const query = String(latestRecord.query || latestRecord.response?.answer?.[0]?.question || '').trim();
-            const recordDid = String(latestRecord.miotDID || latestRecord.deviceID || latestRecord.deviceId || 'global').trim();
+            const rawDevId = String(latestRecord.deviceID || latestRecord.deviceId || latestRecord.miotDID || '').trim();
+            const rawHardware = String(latestRecord.hardware || latestRecord.deviceSNProfile || '').trim().toLowerCase();
 
-            const lastTime = this.lastTimestamps.get(recordDid) || 0;
+            const recordKey = rawDevId || rawHardware || 'global';
+            const lastTime = this.lastTimestamps.get(recordKey) || 0;
 
             // 首次初始化时间戳，避免启动时误触发历史记录
             if (lastTime === 0) {
-              this.lastTimestamps.set(recordDid, timestamp);
+              this.lastTimestamps.set(recordKey, timestamp);
             } else if (timestamp > lastTime && query) {
-              this.lastTimestamps.set(recordDid, timestamp);
+              this.lastTimestamps.set(recordKey, timestamp);
               
-              // 匹配真实设备 DID
+              // 优先从支持媒体播放的真实 MiNA 小爱音箱中精准查找
               const devices = this.client.getCachedDevices();
-              const matchedDev = devices.find(d => d.did === recordDid || d.did.includes(recordDid) || recordDid.includes(d.did));
-              const activeDid = matchedDev?.did || (devices[0]?.did || recordDid);
+              const minaSpeakers = devices.filter(d => d.source === 'MiNA' && !d.did.startsWith('blt.'));
 
-              console.log(`[ConversationListener] 🎯 捕获到音箱 [${activeDid}] 语音指令: "${query}"`);
+              let activeSpeaker = minaSpeakers.find(d => 
+                (rawDevId && (d.deviceId === rawDevId || d.did === rawDevId)) ||
+                (rawHardware && (d.hardware === rawHardware || d.model.toLowerCase() === rawHardware))
+              );
+
+              // 若未匹配到，默认指派首台真正的 MiNA 音箱
+              if (!activeSpeaker) {
+                activeSpeaker = minaSpeakers[0] || devices[0];
+              }
+
+              const activeDid = activeSpeaker?.did || rawDevId;
+              console.log(`[ConversationListener] 🎯 捕获到音箱 [${activeSpeaker?.name || activeDid}] (${activeDid}) 语音指令: "${query}"`);
 
               const parsed = this.parser.parse(query);
               if (parsed.type !== 'unknown') {

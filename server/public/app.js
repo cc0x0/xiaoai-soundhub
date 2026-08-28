@@ -342,14 +342,14 @@ async function castSong(music) {
   }
 }
 
-// 7. 播放控制
+// 7. 播放控制 (针对当前勾选的所有音箱)
 async function controlPlay(action) {
-  const targetDid = Array.from(selectedDids)[0] || '';
+  const targetDids = Array.from(selectedDids);
   try {
     await authFetch('/api/control', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, did: targetDid }),
+      body: JSON.stringify({ action, dids: targetDids }),
     });
     setTimeout(fetchStatus, 500);
   } catch (err) {

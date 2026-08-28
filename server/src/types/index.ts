@@ -4,6 +4,8 @@
 
 export interface DeviceInfo {
   did: string;
+  deviceId?: string;
+  hardware?: string;
   name: string;
   alias: string;
   model: string;

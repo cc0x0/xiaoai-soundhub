@@ -202,6 +202,8 @@ export class XiaoAiClient {
         if (!isSpeaker(model, name, did)) continue;
         deviceMap.set(did, {
           did,
+          deviceId: String(dev.deviceID || dev.deviceId || '').trim(),
+          hardware: String(dev.hardware || '').trim().toLowerCase(),
           name,
           alias: String(dev.alias || '').trim(),
           model,
@@ -223,6 +225,8 @@ export class XiaoAiClient {
         } else if (isSpeaker(model, name, did)) {
           deviceMap.set(did, {
             did,
+            deviceId: '',
+            hardware: model,
             name,
             alias: '',
             model,
