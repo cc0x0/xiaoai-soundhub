@@ -47,69 +47,50 @@ export class ConversationListener {
       }
 
       try {
-        const devices = this.client.getCachedDevices();
-        if (devices.length === 0) {
-          // 仅在首次尝试获取一次，若失败则安全退出
-          const freshDevices = await this.client.listDevices();
-          if (freshDevices.length === 0 || this.client.isAuthSuspended) {
-            console.warn('[ConversationListener] ⚠️ 未能获取到任何可用的小爱音箱设备，监听器已自动暂停。');
-            this.stop();
-            break;
+        const askResult = await this.client.getLatestAsk();
+        if (askResult) {
+          const records = Array.isArray(askResult)
+            ? askResult
+            : (askResult?.records || askResult?.data?.records || []);
+          
+          if (records.length > 0) {
+            const latestRecord = records[0];
+            const timestamp = Number(latestRecord.time || latestRecord.timestamp_ms || Date.now());
+            const query = String(latestRecord.query || latestRecord.response?.answer?.[0]?.question || '').trim();
+            const recordDid = String(latestRecord.miotDID || latestRecord.deviceID || latestRecord.deviceId || 'global').trim();
+
+            const lastTime = this.lastTimestamps.get(recordDid) || 0;
+
+            // 首次初始化时间戳，避免启动时误触发历史记录
+            if (lastTime === 0) {
+              this.lastTimestamps.set(recordDid, timestamp);
+            } else if (timestamp > lastTime && query) {
+              this.lastTimestamps.set(recordDid, timestamp);
+              
+              // 匹配真实设备 DID
+              const devices = this.client.getCachedDevices();
+              const matchedDev = devices.find(d => d.did === recordDid || d.did.includes(recordDid) || recordDid.includes(d.did));
+              const activeDid = matchedDev?.did || (devices[0]?.did || recordDid);
+
+              console.log(`[ConversationListener] 🎯 捕获到音箱 [${activeDid}] 语音指令: "${query}"`);
+
+              const parsed = this.parser.parse(query);
+              if (parsed.type !== 'unknown') {
+                // 抢先掐断小爱官方的 VIP 提示
+                await this.client.pause({ did: activeDid }).catch(() => {});
+
+                if (this.commandHandler) {
+                  await this.commandHandler(activeDid, parsed);
+                }
+              }
+            }
           }
         }
-
-        const targetDevices = devices.slice(0, 30); // 监测活跃设备
-        await Promise.allSettled(
-          targetDevices.map(dev => this.checkDeviceAsk(dev.did))
-        );
       } catch (err: any) {
-        console.warn('[ConversationListener] 轮询异常，安全终止监听:', err.message);
-        this.stop();
-        break;
+        // 忽略单次网络闪断
       }
 
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
-    }
-  }
-
-  private async checkDeviceAsk(did: string): Promise<void> {
-    try {
-      const askResult = await this.client.getLatestAsk(did);
-      if (!askResult) return;
-
-      const records = Array.isArray(askResult)
-        ? askResult
-        : (askResult?.records || askResult?.data?.records || []);
-      if (records.length === 0) return;
-
-      const latestRecord = records[0];
-      const timestamp = Number(latestRecord.time || latestRecord.timestamp_ms || Date.now());
-      const query = String(latestRecord.query || latestRecord.response?.answer?.[0]?.question || '').trim();
-
-      const lastTime = this.lastTimestamps.get(did) || 0;
-
-      // 首次初始化时间戳，避免启动时误触发历史记录
-      if (lastTime === 0) {
-        this.lastTimestamps.set(did, timestamp);
-        return;
-      }
-
-      if (timestamp > lastTime && query) {
-        this.lastTimestamps.set(did, timestamp);
-        console.log(`[ConversationListener] 🎯 捕获到音箱 [${did}] 语音指令: "${query}"`);
-
-        const parsed = this.parser.parse(query);
-        if (parsed.type !== 'unknown') {
-          // 抢先调用 pause 掐断小爱官方的 VIP/试听提示
-          await this.client.pause({ did }).catch(() => {});
-
-          if (this.commandHandler) {
-            await this.commandHandler(did, parsed);
-          }
-        }
-      }
-    } catch {
-      // 忽略单次查询异常
     }
   }
 }

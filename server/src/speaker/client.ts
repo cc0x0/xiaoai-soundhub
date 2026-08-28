@@ -96,12 +96,13 @@ export class XiaoAiClient {
   public async init(targetDid?: string): Promise<void> {
     await this.loadModules();
     
-    // 如果没有指定有效 DID，自动选取设备列表中第一台真正的 WiFi 小爱音箱
+    // 优先选取支持 MiNA 协议的真实小爱主音箱进行账号初始化
     let didToUse = targetDid || this.config.defaultDid || this.config.did || '';
-    if (!didToUse || didToUse.startsWith('blt.')) {
-      const validSpeaker = this.deviceCache.find(d => !d.did.startsWith('blt.'));
-      if (validSpeaker) {
-        didToUse = validSpeaker.did;
+    const minaSpeaker = this.deviceCache.find(d => d.source === 'MiNA' && !d.did.startsWith('blt.'));
+    
+    if (!didToUse || didToUse.startsWith('blt.') || (this.deviceCache.find(d => d.did === didToUse)?.source === 'MIoT' && minaSpeaker)) {
+      if (minaSpeaker) {
+        didToUse = minaSpeaker.did;
       }
     }
     
@@ -118,7 +119,7 @@ export class XiaoAiClient {
       await this.withMiCwd(async () => {
         if (!this.miService) throw new Error('MiService 加载失败');
         await this.miService.init({
-          debug: !!this.config.verboseLog,
+          debug: false,
           speaker: currentConfig,
         });
       });
