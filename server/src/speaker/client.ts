@@ -154,44 +154,65 @@ export class XiaoAiClient {
         console.warn('⚠️ [XiaomiAuth] 小米账号认证未获取到设备（可能是 passToken 过期或触发了风控验证码）。');
       }
 
+      const isSpeaker = (model: string, name: string) => {
+        const m = model.toLowerCase();
+        const n = name.toLowerCase();
+        // 排除常见的非音箱设备类别
+        if (m.includes('camera') || m.includes('switch') || m.includes('plug') || m.includes('light') || m.includes('vacuum') || m.includes('sensor') || m.includes('lock') || m.includes('curtain') || m.includes('router') || m.includes('gateway')) {
+          return false;
+        }
+        if (n.includes('摄像') || n.includes('插座') || n.includes('开关') || n.includes('灯') || n.includes('门锁') || n.includes('网关') || n.includes('窗帘') || n.includes('温湿度') || n.includes('传感器')) {
+          return false;
+        }
+        // 匹配音箱特征
+        return m.includes('wifispeaker') || m.includes('soundbox') || m.includes('speaker') || n.includes('音箱') || n.includes('音响') || n.includes('小爱');
+      };
+
       const deviceMap = new Map<string, DeviceInfo>();
 
-    for (const dev of rawMina) {
-      const did = String(dev.miotDID || dev.deviceID || dev.deviceId || '').trim();
-      if (!did) continue;
-      deviceMap.set(did, {
-        did,
-        name: String(dev.alias || dev.name || did).trim(),
-        alias: String(dev.alias || '').trim(),
-        model: String(dev.hardware || '').trim().toLowerCase(),
-        mac: String(dev.mac || '').trim(),
-        online: dev.presence === 'online' || dev.presence === true,
-        source: 'MiNA',
-      });
-    }
-
-    for (const dev of rawMiot) {
-      const did = String(dev.did || '').trim();
-      if (!did) continue;
-      const existing = deviceMap.get(did);
-      if (existing) {
-        if (dev.model) existing.model = String(dev.model).trim().toLowerCase();
-        if (dev.isOnline !== undefined) existing.online = !!dev.isOnline;
-      } else {
+      for (const dev of rawMina) {
+        const did = String(dev.miotDID || dev.deviceID || dev.deviceId || '').trim();
+        if (!did) continue;
+        const name = String(dev.alias || dev.name || did).trim();
+        const model = String(dev.hardware || '').trim().toLowerCase();
+        if (!isSpeaker(model, name) && !dev.miotDID && !dev.deviceID) continue;
         deviceMap.set(did, {
           did,
-          name: String(dev.name || did).trim(),
-          alias: '',
-          model: String(dev.model || '').trim().toLowerCase(),
+          name,
+          alias: String(dev.alias || '').trim(),
+          model,
           mac: String(dev.mac || '').trim(),
-          online: !!dev.isOnline,
-          source: 'MIoT',
+          online: dev.presence === 'online' || dev.presence === true,
+          source: 'MiNA',
         });
       }
-    }
 
-    this.deviceCache = Array.from(deviceMap.values());
-    return this.deviceCache;
+      for (const dev of rawMiot) {
+        const did = String(dev.did || '').trim();
+        if (!did) continue;
+        const name = String(dev.name || did).trim();
+        const model = String(dev.model || '').trim().toLowerCase();
+        const existing = deviceMap.get(did);
+        if (existing) {
+          if (dev.model) existing.model = model;
+          if (dev.isOnline !== undefined) existing.online = !!dev.isOnline;
+        } else if (isSpeaker(model, name)) {
+          deviceMap.set(did, {
+            did,
+            name,
+            alias: '',
+            model,
+            mac: String(dev.mac || '').trim(),
+            online: !!dev.isOnline,
+            source: 'MIoT',
+          });
+        }
+      }
+
+      // 最终二次过滤，确保所有输出均为纯正音箱
+      const finalDevices = Array.from(deviceMap.values()).filter(d => isSpeaker(d.model, d.name));
+      this.deviceCache = finalDevices;
+      return this.deviceCache;
     } catch (err: any) {
       this.isAuthSuspended = true;
       this.authErrorMessage = err.message || '小米账号登录认证遇到风控或凭证失效';
