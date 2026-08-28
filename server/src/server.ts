@@ -21,7 +21,12 @@ const __dirname = path.dirname(__filename);
 process.on('uncaughtException', (err) => {
   console.warn('[Server] 捕获未处理异常（已安全保护）:', err.message);
 });
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', (reason: any) => {
+  // 屏蔽第三方音源脚本自身后台版本检测/镜像探活产生的无害异常日志
+  const msg = String(reason?.message || reason || '');
+  if (reason?.name === 'AggregateError' || msg.includes('AggregateError') || msg.includes('FAILED')) {
+    return;
+  }
   console.warn('[Server] 捕获未处理 Promise Rejection（已安全保护）:', reason);
 });
 
