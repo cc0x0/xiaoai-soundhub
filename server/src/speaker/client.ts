@@ -87,7 +87,15 @@ export class XiaoAiClient {
 
   public async init(targetDid?: string): Promise<void> {
     await this.loadModules();
-    const didToUse = targetDid || this.config.defaultDid || this.config.did || '';
+    
+    // 如果没有指定有效 DID，自动选取设备列表中第一台真正的 WiFi 小爱音箱
+    let didToUse = targetDid || this.config.defaultDid || this.config.did || '';
+    if (!didToUse || didToUse.startsWith('blt.')) {
+      const validSpeaker = this.deviceCache.find(d => !d.did.startsWith('blt.'));
+      if (validSpeaker) {
+        didToUse = validSpeaker.did;
+      }
+    }
     
     if (this.initialized && this.activeDid === didToUse) {
       return;
@@ -98,16 +106,19 @@ export class XiaoAiClient {
       did: didToUse,
     };
 
-    await this.withMiCwd(async () => {
-      if (!this.miService) throw new Error('MiService 加载失败');
-      await this.miService.init({
-        debug: !!this.config.verboseLog,
-        speaker: currentConfig,
+    try {
+      await this.withMiCwd(async () => {
+        if (!this.miService) throw new Error('MiService 加载失败');
+        await this.miService.init({
+          debug: !!this.config.verboseLog,
+          speaker: currentConfig,
+        });
       });
-    });
-
-    this.activeDid = didToUse;
-    this.initialized = true;
+      this.activeDid = didToUse;
+      this.initialized = true;
+    } catch (err: any) {
+      console.warn(`[XiaoAiClient] 音箱 [${didToUse}] 初始化提示:`, err.message || err);
+    }
   }
 
   public isAuthSuspended = false;
@@ -150,13 +161,17 @@ export class XiaoAiClient {
       const rawMiot = miotResult.status === 'fulfilled' && Array.isArray(miotResult.value) ? miotResult.value : [];
 
       if (rawMina.length === 0 && rawMiot.length === 0) {
-        // 如果两次均未获取到任何设备，可能遇到了验证码风控或凭证失效
         console.warn('⚠️ [XiaomiAuth] 小米账号认证未获取到设备（可能是 passToken 过期或触发了风控验证码）。');
       }
 
-      const isSpeaker = (model: string, name: string) => {
+      const isSpeaker = (model: string, name: string, did: string) => {
         const m = model.toLowerCase();
         const n = name.toLowerCase();
+        const d = did.toLowerCase();
+        // 过滤蓝牙 Mesh 子设备
+        if (d.startsWith('blt.') || d.includes('blt') || m.includes('blt')) {
+          return false;
+        }
         // 排除常见的非音箱设备类别
         if (m.includes('camera') || m.includes('switch') || m.includes('plug') || m.includes('light') || m.includes('vacuum') || m.includes('sensor') || m.includes('lock') || m.includes('curtain') || m.includes('router') || m.includes('gateway')) {
           return false;
@@ -175,7 +190,7 @@ export class XiaoAiClient {
         if (!did) continue;
         const name = String(dev.alias || dev.name || did).trim();
         const model = String(dev.hardware || '').trim().toLowerCase();
-        if (!isSpeaker(model, name) && !dev.miotDID && !dev.deviceID) continue;
+        if (!isSpeaker(model, name, did)) continue;
         deviceMap.set(did, {
           did,
           name,
@@ -196,7 +211,7 @@ export class XiaoAiClient {
         if (existing) {
           if (dev.model) existing.model = model;
           if (dev.isOnline !== undefined) existing.online = !!dev.isOnline;
-        } else if (isSpeaker(model, name)) {
+        } else if (isSpeaker(model, name, did)) {
           deviceMap.set(did, {
             did,
             name,
@@ -210,7 +225,7 @@ export class XiaoAiClient {
       }
 
       // 最终二次过滤，确保所有输出均为纯正音箱
-      const finalDevices = Array.from(deviceMap.values()).filter(d => isSpeaker(d.model, d.name));
+      const finalDevices = Array.from(deviceMap.values()).filter(d => isSpeaker(d.model, d.name, d.did));
       this.deviceCache = finalDevices;
       return this.deviceCache;
     } catch (err: any) {
