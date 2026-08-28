@@ -34,23 +34,10 @@ export class SourceEngine {
     const scriptContent = fs.readFileSync(fullPath, 'utf-8');
     this.activeSourceFile = fileName;
 
-    // 创建隔离上下文与全局 bridge
-    const context: Record<string, any> = {
-      console,
-      Buffer,
-      setTimeout,
-      clearTimeout,
-      setInterval,
-      clearInterval,
-      URL,
-      URLSearchParams,
-      crypto: {
-        createHash: crypto.createHash,
-        createCipheriv: crypto.createCipheriv,
-        createDecipheriv: crypto.createDecipheriv,
-        randomBytes: crypto.randomBytes,
-      },
-    };
+    const atobPolyfill = (str: string) => Buffer.from(str, 'base64').toString('binary');
+    const btoaPolyfill = (str: string) => Buffer.from(str, 'binary').toString('base64');
+
+    const eventHandlers: Record<string, ((...args: any[]) => any)[]> = {};
 
     // 模拟 LX 运行环境
     const lxBridge = {
@@ -60,6 +47,7 @@ export class SourceEngine {
       EVENT_NAMES: {
         inited: 'inited',
         updateAlert: 'updateAlert',
+        request: 'request',
       },
       request: (url: string, options: any = {}, callback?: (err: any, resp: any, body: any) => void) => {
         const method = (options.method || 'GET').toUpperCase();
@@ -79,7 +67,7 @@ export class SourceEngine {
           config.data = options.data || options.body || options.form;
         }
 
-        const promise = axios(config)
+        void axios(config)
           .then((resp) => {
             const responseObj = {
               statusCode: resp.status,
@@ -90,18 +78,11 @@ export class SourceEngine {
             if (callback) {
               callback(null, responseObj, resp.data);
             }
-            return responseObj;
           })
           .catch((err: any) => {
             if (callback) {
               callback(err, null, null);
             }
-            return {
-              statusCode: 500,
-              status: 500,
-              headers: {},
-              body: err.message,
-            };
           });
 
         return () => {
@@ -111,10 +92,24 @@ export class SourceEngine {
       sendAction: (action: string, data: any) => {
         if (action === 'init' || action === 'inited') {
           this.sourceInfo = data;
+          if (data?.sources) {
+            this.apis = data.sources;
+          }
         }
       },
-      on: (_event: string, _handler: (...args: any[]) => void) => {
-        // 事件监听
+      on: (event: string, handler: (...args: any[]) => void) => {
+        if (!eventHandlers[event]) eventHandlers[event] = [];
+        eventHandlers[event].push(handler);
+      },
+      emit: (event: string, ...args: any[]) => {
+        const handlers = eventHandlers[event] || [];
+        for (const h of handlers) {
+          try {
+            h(...args);
+          } catch (e) {
+            console.warn(`[SourceEngine] Event [${event}] handler error:`, (e as Error).message);
+          }
+        }
       },
       utils: {
         buffer: {
@@ -130,7 +125,56 @@ export class SourceEngine {
       },
     };
 
-    context.lx = lxBridge;
+    // 创建隔离上下文与全局 bridge（注入全部 V8 标准环境，杜绝 Bind must be called on a function）
+    const context: Record<string, any> = {
+      console,
+      Buffer,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      setImmediate,
+      clearImmediate,
+      URL,
+      URLSearchParams,
+      atob: atobPolyfill,
+      btoa: btoaPolyfill,
+      encodeURIComponent,
+      decodeURIComponent,
+      parseInt,
+      parseFloat,
+      isNaN,
+      isFinite,
+      Math,
+      Date,
+      JSON,
+      RegExp,
+      Array,
+      Object,
+      Function,
+      String,
+      Number,
+      Boolean,
+      Symbol,
+      Promise,
+      Map,
+      Set,
+      WeakMap,
+      WeakSet,
+      Proxy,
+      Reflect,
+      Error,
+      TypeError,
+      RangeError,
+      SyntaxError,
+      lx: lxBridge,
+      crypto: {
+        createHash: crypto.createHash,
+        createCipheriv: crypto.createCipheriv,
+        createDecipheriv: crypto.createDecipheriv,
+        randomBytes: crypto.randomBytes,
+      },
+    };
     context.global = context;
     context.globalThis = context;
     context.window = context;
