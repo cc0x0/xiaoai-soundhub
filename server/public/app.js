@@ -5,9 +5,24 @@
 let devices = [];
 let selectedDids = new Set();
 let isPlaying = false;
+let authToken = localStorage.getItem('soundhub_token') || '';
+
+// 统一封装带鉴权的请求
+async function authFetch(url, options = {}) {
+  const headers = options.headers || {};
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    showAuthModal();
+  }
+  return res;
+}
 
 // 1. 初始化
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await checkAuthStatus();
   fetchStatus();
   fetchDevices();
   bindEvents();
@@ -15,6 +30,28 @@ document.addEventListener('DOMContentLoaded', () => {
   // 定时拉取播放状态
   setInterval(fetchStatus, 4000);
 });
+
+async function checkAuthStatus() {
+  try {
+    const res = await fetch('/api/auth/status');
+    const json = await res.json();
+    if (json.ok && json.data?.authRequired) {
+      if (!authToken) {
+        showAuthModal();
+      }
+    }
+  } catch {}
+}
+
+function showAuthModal() {
+  const modal = document.getElementById('auth-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function hideAuthModal() {
+  const modal = document.getElementById('auth-modal');
+  if (modal) modal.style.display = 'none';
+}
 
 function bindEvents() {
   document.getElementById('btn-refresh-devices').addEventListener('click', fetchDevices);
@@ -25,6 +62,48 @@ function bindEvents() {
   document.getElementById('search-input').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') doSearch();
   });
+
+  // 安全口令登录提交
+  const btnAuth = document.getElementById('btn-submit-auth');
+  const authInput = document.getElementById('auth-password-input');
+  if (btnAuth && authInput) {
+    const submitLogin = async () => {
+      const password = authInput.value.trim();
+      const errMsg = document.getElementById('auth-error-msg');
+      if (!password) return;
+      try {
+        btnAuth.disabled = true;
+        btnAuth.textContent = '验证中...';
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const json = await res.json();
+        if (json.ok && json.data?.token !== undefined) {
+          authToken = json.data.token;
+          localStorage.setItem('soundhub_token', authToken);
+          errMsg.style.display = 'none';
+          hideAuthModal();
+          fetchDevices();
+          fetchStatus();
+        } else {
+          errMsg.textContent = json.error || '访问密码错误';
+          errMsg.style.display = 'block';
+        }
+      } catch (err) {
+        errMsg.textContent = `网络错误: ${err.message}`;
+        errMsg.style.display = 'block';
+      } finally {
+        btnAuth.disabled = false;
+        btnAuth.textContent = '解锁中枢';
+      }
+    };
+    btnAuth.addEventListener('click', submitLogin);
+    authInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitLogin();
+    });
+  }
 
   // 快捷常用语
   document.querySelectorAll('.chip').forEach((chip) => {
@@ -51,7 +130,7 @@ function bindEvents() {
 // 2. 状态查询
 async function fetchStatus() {
   try {
-    const res = await fetch('/api/status');
+    const res = await authFetch('/api/status');
     const json = await res.json();
     if (json.ok) {
       document.getElementById('status-text').textContent = '服务在线';
@@ -79,7 +158,7 @@ async function fetchDevices() {
   container.innerHTML = '<div class="empty-hint">正在拉取设备列表...</div>';
 
   try {
-    const res = await fetch('/api/devices');
+    const res = await authFetch('/api/devices');
     const json = await res.json();
 
     if (json.ok && json.data) {
@@ -95,10 +174,10 @@ async function fetchDevices() {
       devices.forEach((d) => selectedDids.add(d.did));
       renderDevices();
     } else {
-      container.innerHTML = `<div class="empty-hint">加载失败: ${json.error || '未知错误'}</div>`;
+      container.innerHTML = `<div class="empty-hint">加载失败: ${json.error || '未授权或连接失败'}</div>`;
     }
   } catch (err) {
-    container.innerHTML = `<div class="empty-hint">网络异常: ${err.message}</div>`;
+    container.innerHTML = `<div class="empty-hint">请求失败: ${err.message}</div>`;
   }
 }
 
@@ -111,22 +190,32 @@ function renderDevices() {
     const item = document.createElement('div');
     item.className = `device-item ${isSelected ? 'selected' : ''}`;
     item.innerHTML = `
-      <div class="device-info">
-        <input type="checkbox" ${isSelected ? 'checked' : ''} />
-        <div>
-          <div class="device-name">${dev.name}</div>
-          <div class="device-model">${dev.model || '小爱音箱'}</div>
-        </div>
+      <div class="device-checkbox">
+        <input type="checkbox" ${isSelected ? 'checked' : ''} data-did="${dev.did}" />
       </div>
-      <div class="device-status-tag">${dev.online !== false ? '在线' : '离线'}</div>
+      <div class="device-info">
+        <div class="device-name">${dev.name || dev.alias || dev.did}</div>
+        <div class="device-model">${dev.model || '小爱音箱'}</div>
+      </div>
+      <div class="device-status-tag">${dev.online ? '在线' : '离线'}</div>
     `;
 
     item.addEventListener('click', (e) => {
-      if (e.target.tagName !== 'INPUT') {
-        const checkbox = item.querySelector('input');
-        checkbox.checked = !checkbox.checked;
+      if (e.target.tagName === 'INPUT') return;
+      const cb = item.querySelector('input[type="checkbox"]');
+      cb.checked = !cb.checked;
+      if (!cb.checked) {
+        selectedDids.delete(dev.did);
+        item.classList.remove('selected');
+      } else {
+        selectedDids.add(dev.did);
+        item.classList.add('selected');
       }
-      if (selectedDids.has(dev.did)) {
+    });
+
+    const checkbox = item.querySelector('input[type="checkbox"]');
+    checkbox.addEventListener('change', (e) => {
+      if (!e.target.checked) {
         selectedDids.delete(dev.did);
         item.classList.remove('selected');
       } else {
@@ -168,7 +257,7 @@ async function sendTTS() {
   btn.textContent = '播报发送中...';
 
   try {
-    const res = await fetch('/api/tts', {
+    const res = await authFetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, dids: targetDids }),
@@ -196,7 +285,7 @@ async function doSearch() {
   container.innerHTML = '<div class="empty-hint">🔍 正在通过 LX 音源搜索全网曲库...</div>';
 
   try {
-    const res = await fetch(`/api/search?keyword=${encodeURIComponent(keyword)}&limit=20`);
+    const res = await authFetch(`/api/search?keyword=${encodeURIComponent(keyword)}&limit=20`);
     const json = await res.json();
 
     if (json.ok && json.data?.list?.length > 0) {
@@ -232,7 +321,7 @@ async function castSong(music) {
   }
 
   try {
-    const res = await fetch('/api/play', {
+    const res = await authFetch('/api/play', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ music, dids: targetDids }),
@@ -255,7 +344,7 @@ async function castSong(music) {
 async function controlPlay(action) {
   const targetDid = Array.from(selectedDids)[0] || '';
   try {
-    await fetch('/api/control', {
+    await authFetch('/api/control', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, did: targetDid }),

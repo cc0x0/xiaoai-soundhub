@@ -46,7 +46,7 @@ function loadConfig(): AppConfig {
     server: {
       port: Number(process.env.PORT || process.env.XIAOI_PORT || rawConfig.server?.port || 8080),
       host: process.env.HOST || rawConfig.server?.host || '0.0.0.0',
-      token: process.env.XIAOI_TOKEN || rawConfig.server?.token || '',
+      token: process.env.ACCESS_PASSWORD || process.env.XIAOI_TOKEN || process.env.TOKEN || rawConfig.server?.token || '',
       publicBaseUrl: process.env.PUBLIC_BASE_URL || rawConfig.server?.publicBaseUrl || `http://localhost:${rawConfig.server?.port || 8080}`,
     },
     speaker: {
@@ -81,9 +81,15 @@ function loadConfig(): AppConfig {
   };
 }
 
+// IP 防暴力破解记录器
+const failedLoginAttempts = new Map<string, { count: number; blockedUntil: number }>();
+
 async function bootstrap() {
   const config = loadConfig();
   console.log(`[XiaoAi SoundHub] 正在启动服务... (端口: ${config.server.port})`);
+  if (config.server.token) {
+    console.log(`[Security] 🔒 访问安全口令保护已启用 (防扫描与未授权调用)`);
+  }
 
   // 2. 初始化核心组件
   const speakerClient = new XiaoAiClient(config.speaker);
@@ -138,7 +144,7 @@ async function bootstrap() {
         console.warn(`[Server] ⚠️ 小米账号未成功拉取到设备或遇到安全风控，后台语音监听已安全关闭（不影响 Web 与移动端音乐投播接口）。`);
       }
     } catch (err: any) {
-      console.warn(`[Server] ⚠️ 小米账号认证遇到异常，已暂停后台自动重试:`, err.message);
+      console.warn(`[Server] 小米账号登录认证异常:`, err.message);
     }
   } else {
     console.warn(`[Server] 尚未配置小米账号凭证 (userId / passToken)，请在 config.json 或环境变量中配置`);
@@ -155,15 +161,57 @@ async function bootstrap() {
     app.use(express.static(publicDir));
   }
 
-  // 认证 Token 中间件 (若配置了 Token)
+  // 认证状态与登录 API (免鉴权)
+  app.get('/api/auth/status', (_req: Request, res: Response) => {
+    res.json({
+      ok: true,
+      data: {
+        authRequired: !!config.server.token,
+      },
+    });
+  });
+
+  app.post('/api/auth/login', (req: Request, res: Response) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const record = failedLoginAttempts.get(ip);
+    const now = Date.now();
+
+    if (record && record.count >= 5 && now < record.blockedUntil) {
+      const remainSec = Math.ceil((record.blockedUntil - now) / 1000);
+      res.status(429).json({ ok: false, error: `输错密码过多，请等待 ${remainSec} 秒后再试` });
+      return;
+    }
+
+    const { password } = req.body;
+    if (!config.server.token || password === config.server.token) {
+      failedLoginAttempts.delete(ip);
+      res.json({ ok: true, data: { token: config.server.token } });
+    } else {
+      const currentCount = (record?.count || 0) + 1;
+      const blockedUntil = currentCount >= 5 ? now + 15 * 60 * 1000 : 0;
+      failedLoginAttempts.set(ip, { count: currentCount, blockedUntil });
+      res.status(401).json({ ok: false, error: '访问密码错误，请重新输入' });
+    }
+  });
+
+  // 安全防护 Token 中间件 (保护全部控制 API 与音箱状态)
   app.use((req, res, next) => {
     if (!config.server.token) return next();
-    if (req.path.startsWith('/proxy/stream') || req.path === '/' || req.path.endsWith('.html') || req.path.endsWith('.js') || req.path.endsWith('.css')) {
+    // 允许免认证的路径：静态页面、音频流反代代理、登录认证接口
+    if (
+      req.path.startsWith('/proxy/stream') ||
+      req.path.startsWith('/api/auth/') ||
+      req.path === '/' ||
+      req.path.endsWith('.html') ||
+      req.path.endsWith('.js') ||
+      req.path.endsWith('.css') ||
+      req.path.endsWith('.ico')
+    ) {
       return next();
     }
     const token = req.headers['authorization']?.replace('Bearer ', '') || req.headers['x-token'] || req.query.token;
     if (token !== config.server.token) {
-      res.status(401).json({ ok: false, error: 'Unauthorized: invalid token' });
+      res.status(401).json({ ok: false, error: '未授权：请先输入访问口令' });
       return;
     }
     next();

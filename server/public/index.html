@@ -116,6 +116,20 @@
     </main>
   </div>
 
+  <!-- 安全访问密码弹窗 (防扫描防护) -->
+  <div class="modal-overlay" id="auth-modal" style="display: none;">
+    <div class="auth-card">
+      <div class="auth-icon">🔒</div>
+      <h3>请输入访问口令</h3>
+      <p class="auth-desc">该小爱中枢已启用公网安全防护，请输入访问密码以解锁控制台。</p>
+      <div class="auth-input-group">
+        <input type="password" id="auth-password-input" placeholder="输入访问口令..." autocomplete="current-password" />
+        <button class="btn btn-primary" id="btn-submit-auth">解锁中枢</button>
+      </div>
+      <div class="auth-error-msg" id="auth-error-msg" style="display: none;"></div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
