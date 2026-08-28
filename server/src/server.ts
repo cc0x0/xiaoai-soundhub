@@ -234,7 +234,7 @@ async function bootstrap() {
     }
   });
 
-  // 2. 发送文本语音 TTS (单选或多选全屋广播，支持清脆提示音预播)
+  // 2. 发送文本语音 TTS (单选或多选全屋广播，支持清脆提示音预播与播报完毕音乐自动恢复)
   app.post('/api/tts', async (req: Request, res: Response) => {
     try {
       const { text, did, dids, chime } = req.body;
@@ -244,10 +244,26 @@ async function bootstrap() {
       }
 
       const targetDids: string[] = dids || (did ? [did] : []);
+      // 记录在播报前哪些音箱正在播放音乐
+      const playingDids = targetDids.filter((d) => !!scheduler.getCurrentState(d));
+
       const results = await speakerClient.ttsMulti(text, targetDids, {
         chime: chime !== undefined ? chime : 'dingdong',
         publicBaseUrl: config.server.publicBaseUrl,
       });
+
+      // 如果播报前有音箱正在放歌，等待朗读结束后自动恢复音乐播放
+      if (playingDids.length > 0) {
+        const hasChime = chime !== 'none' && chime !== false;
+        const estimatedSpeakMs = (hasChime ? 1500 : 0) + Math.max(2500, text.length * 300) + 1600;
+
+        setTimeout(() => {
+          playingDids.forEach((d) => {
+            scheduler.resume(d).catch(() => {});
+          });
+        }, estimatedSpeakMs);
+      }
+
       res.json({ ok: true, data: results } as ApiResponse);
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message } as ApiResponse);

@@ -60,6 +60,13 @@ export class PlayScheduler {
     return await this.client.pause({ did });
   }
 
+  public async resume(did: string): Promise<boolean> {
+    const current = this.currentPlayState.get(did);
+    if (!current || !current.streamUrl) return false;
+    console.log(`[PlayScheduler] 语音播报结束，自动为音箱 [${did}] 恢复音乐播放: ${current.music.singer} - ${current.music.name}`);
+    return await this.client.playAudio(current.streamUrl, { did });
+  }
+
   public getCurrentState(did?: string): PlayQueueItem | undefined {
     if (did) return this.currentPlayState.get(did);
     const firstKey = this.currentPlayState.keys().next().value;
