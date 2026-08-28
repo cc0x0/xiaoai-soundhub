@@ -1,0 +1,76 @@
+/**
+ * 语音指令解析器
+ * 从实体小爱音箱识别到的文本中提取操作意图与搜歌关键词
+ */
+
+export interface ParsedVoiceCommand {
+  type: 'play' | 'stop' | 'pause' | 'resume' | 'next' | 'prev' | 'volume' | 'unknown';
+  keyword?: string;
+  volume?: number;
+  rawText: string;
+}
+
+export class VoiceParser {
+  private playPrefixes = ['播放歌曲', '播放', '我想听', '放一首', '唱一首', '放首', '来首', '来一首'];
+  private stopKeywords = ['停止播放', '停止', '别唱了', '闭嘴', '关机', '不要放了'];
+  private pauseKeywords = ['暂停播放', '暂停'];
+  private resumeKeywords = ['继续播放', '恢复播放', '继续'];
+  private nextKeywords = ['下一首', '切歌', '换一首', '下一曲', '换歌'];
+  private prevKeywords = ['上一首', '上一曲'];
+
+  public parse(text: string): ParsedVoiceCommand {
+    const raw = (text || '').trim();
+    if (!raw) {
+      return { type: 'unknown', rawText: raw };
+    }
+
+    // 1. 停止
+    if (this.stopKeywords.some((k) => raw === k || raw.startsWith(k))) {
+      return { type: 'stop', rawText: raw };
+    }
+
+    // 2. 暂停
+    if (this.pauseKeywords.some((k) => raw === k)) {
+      return { type: 'pause', rawText: raw };
+    }
+
+    // 3. 继续
+    if (this.resumeKeywords.some((k) => raw === k)) {
+      return { type: 'resume', rawText: raw };
+    }
+
+    // 4. 下一首
+    if (this.nextKeywords.some((k) => raw.includes(k))) {
+      return { type: 'next', rawText: raw };
+    }
+
+    // 5. 上一首
+    if (this.prevKeywords.some((k) => raw.includes(k))) {
+      return { type: 'prev', rawText: raw };
+    }
+
+    // 6. 音量控制
+    const volMatch = raw.match(/音量.*?(?:调到|设为|调成|为)?\s*(\d{1,3})/);
+    if (volMatch && volMatch[1]) {
+      const vol = parseInt(volMatch[1], 10);
+      if (vol >= 0 && vol <= 100) {
+        return { type: 'volume', volume: vol, rawText: raw };
+      }
+    }
+
+    // 7. 播放与搜歌口令匹配
+    for (const prefix of this.playPrefixes) {
+      if (raw.startsWith(prefix)) {
+        let keyword = raw.slice(prefix.length).trim();
+        // 清理常见的后缀语气词，如“的歌”、“的歌曲”
+        keyword = keyword.replace(/的(歌|歌曲|音乐)$/, '').trim();
+        if (keyword) {
+          return { type: 'play', keyword, rawText: raw };
+        }
+      }
+    }
+
+    return { type: 'unknown', rawText: raw };
+  }
+}
+

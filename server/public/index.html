@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XiaoAi SoundHub - 小爱声枢控制台</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- 顶部导航 -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">🎵</span>
+        <div>
+          <h1>XiaoAi SoundHub</h1>
+          <p class="subtitle">小爱音箱全网音乐与多设备智能播报中枢</p>
+        </div>
+      </div>
+      <div class="status-badge" id="server-status">
+        <span class="dot"></span>
+        <span id="status-text">连接中...</span>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- 左侧栏：小爱音箱管理 & TTS 广播 -->
+      <section class="card speaker-panel">
+        <div class="card-header">
+          <h2>📢 小爱音箱与 TTS 广播</h2>
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-devices">🔄 刷新音箱</button>
+        </div>
+
+        <!-- 音箱列表 -->
+        <div class="devices-section">
+          <div class="section-title-bar">
+            <span class="section-label">可用音箱设备 (<span id="device-count">0</span>)</span>
+            <div class="select-actions">
+              <button class="btn-link" id="btn-select-all">全选</button>
+              <span class="divider">|</span>
+              <button class="btn-link" id="btn-deselect-all">取消全选</button>
+            </div>
+          </div>
+          <div class="device-list" id="device-list">
+            <div class="empty-hint">正在加载设备列表...</div>
+          </div>
+        </div>
+
+        <!-- TTS 发送区 -->
+        <div class="tts-section">
+          <label for="tts-input" class="section-label">发送文本让小爱朗读 (TTS)</label>
+          <div class="tts-input-wrapper">
+            <textarea id="tts-input" placeholder="输入要让小爱音箱朗读的文本，例如：准备开饭啦！" rows="3"></textarea>
+          </div>
+          
+          <!-- 常用语预设 -->
+          <div class="preset-chips">
+            <span class="chip" data-text="准备开饭啦！">🍲 开饭啦</span>
+            <span class="chip" data-text="该起床啦，新的一天开始啦！">⏰ 叫起床</span>
+            <span class="chip" data-text="主人，您的快递已送达。">📦 快递到了</span>
+            <span class="chip" data-text="主人，这是一条全屋广播测试消息。">🔊 系统测试</span>
+          </div>
+
+          <div class="tts-actions">
+            <button class="btn btn-primary" id="btn-send-tts">📢 发送语音播报 (所选音箱)</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧栏：全网音乐搜索与投播 -->
+      <section class="card music-panel">
+        <div class="card-header">
+          <h2>🔍 全网音乐搜索 & 投播 (LX 音源)</h2>
+          <div class="source-tag" id="active-source-badge">音源: 加载中</div>
+        </div>
+
+        <!-- 搜索栏 -->
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="输入歌名、歌手，例如：周杰伦 晴天..." />
+          <button class="btn btn-primary" id="btn-search">搜索</button>
+        </div>
+
+        <!-- 快捷热门歌手 -->
+        <div class="hot-search-chips">
+          <span class="hot-chip">周杰伦</span>
+          <span class="hot-chip">林俊杰</span>
+          <span class="hot-chip">陈奕迅</span>
+          <span class="hot-chip">孙燕姿</span>
+          <span class="hot-chip">王菲</span>
+        </div>
+
+        <!-- 搜索结果列表 -->
+        <div class="search-results-wrapper">
+          <div class="search-results" id="search-results">
+            <div class="empty-hint">在上方搜索框输入关键词，通过云端 LX 音源开始搜索</div>
+          </div>
+        </div>
+
+        <!-- 底部迷你控制栏 -->
+        <div class="player-bar" id="player-bar">
+          <div class="track-info">
+            <span class="track-title" id="player-title">暂无播放歌曲</span>
+            <span class="track-artist" id="player-artist">小爱音箱待命</span>
+          </div>
+          <div class="player-controls">
+            <button class="control-btn" id="btn-prev" title="上一首">⏮️</button>
+            <button class="control-btn" id="btn-toggle-play" title="暂停/继续">⏸️</button>
+            <button class="control-btn" id="btn-next" title="下一首">⏭️</button>
+            <button class="control-btn" id="btn-stop" title="停止播放">⏹️</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+

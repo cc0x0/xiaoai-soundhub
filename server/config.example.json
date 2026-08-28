@@ -1,0 +1,58 @@
+{
+  "server": {
+    "port": 8080,
+    "host": "0.0.0.0",
+    "token": "",
+    "publicBaseUrl": "http://localhost:8080"
+  },
+  "speaker": {
+    "userId": "你的小米账号ID(数字)",
+    "passToken": "你的passToken",
+    "password": "",
+    "did": "",
+    "defaultDid": "",
+    "ttsMode": "auto",
+    "verboseLog": false,
+    "ttsFallbackCommand": [5, 1],
+    "ttsFallbackCommands": {
+      "oh2p": [7, 3],
+      "oh2": [5, 3],
+      "lx06": [5, 1],
+      "s12": [5, 1],
+      "l15a": [7, 3],
+      "lx5a": [5, 1],
+      "lx05": [5, 1],
+      "x10a": [7, 3],
+      "l17a": [7, 3],
+      "l06a": [5, 1],
+      "lx01": [5, 1],
+      "l05b": [5, 3],
+      "l05c": [5, 3],
+      "l09a": [3, 1],
+      "lx04": [5, 1],
+      "asx4b": [5, 3],
+      "x6a": [7, 3],
+      "x08e": [7, 3],
+      "x8f": [7, 3]
+    }
+  },
+  "listener": {
+    "enabled": true,
+    "pollIntervalMs": 1200,
+    "keywords": ["播放", "播放歌曲", "来一首", "唱一首", "我想听"],
+    "controlKeywords": {
+      "stop": ["停止播放", "别唱了", "闭嘴", "关机"],
+      "pause": ["暂停", "暂停播放"],
+      "resume": ["继续播放", "恢复播放"],
+      "next": ["下一首", "切歌", "换一首"],
+      "prev": ["上一首"]
+    }
+  },
+  "sourceEngine": {
+    "activeSource": "my-custom-source.js",
+    "sourcesDir": "./sources",
+    "defaultQuality": "320k",
+    "proxyStream": true
+  }
+}
+
