@@ -364,18 +364,45 @@ export class XiaoAiClient {
     return false;
   }
 
-  public async getLatestAsk(_deviceId?: string): Promise<any> {
-    if (!this.initialized) {
-      await this.init();
+  private minaClients = new Map<string, any>();
+
+  public async getMiNAClient(did: string): Promise<any> {
+    const existing = this.minaClients.get(did);
+    if (existing) return existing;
+    await this.loadModules();
+    const getMiNA = this.miotModule.getMiNA || this.miotModule.default?.getMiNA;
+    const client = await this.withMiCwd(() =>
+      getMiNA({
+        userId: this.config.userId,
+        password: this.config.password,
+        passToken: this.config.passToken,
+        pass: this.config.passToken ? { passToken: this.config.passToken } : undefined,
+        did,
+        debug: false,
+      })
+    );
+    if (client) this.minaClients.set(did, client);
+    return client;
+  }
+
+  public async getLatestAsk(did?: string): Promise<any> {
+    let targetDid = did;
+    if (!targetDid) {
+      const mainSpeaker = this.deviceCache.find((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
+      targetDid = mainSpeaker?.did || '';
     }
-    if (this.miService?.MiNA) {
-      if (typeof this.miService.MiNA.getConversations === 'function') {
-        return await this.miService.MiNA.getConversations({ limit: 2 });
+    if (!targetDid) return null;
+
+    try {
+      const client = await this.getMiNAClient(targetDid);
+      if (client && typeof client.getConversations === 'function') {
+        return await client.getConversations({ limit: 2 });
       }
-      if (typeof (this.miService.MiNA as any).get_latest_ask === 'function') {
-        return await (this.miService.MiNA as any).get_latest_ask(_deviceId);
+      if (client && typeof client.get_latest_ask === 'function') {
+        return await client.get_latest_ask(targetDid);
       }
-    }
+    } catch {}
+
     return null;
   }
 }
