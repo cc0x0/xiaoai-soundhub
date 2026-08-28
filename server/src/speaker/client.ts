@@ -333,8 +333,13 @@ export class XiaoAiClient {
 
   public async playAudio(url: string, options?: { did?: string }): Promise<boolean> {
     const targetDid = options?.did || this.config.defaultDid || this.config.did || '';
+    if (targetDid) {
+      const client = await this.getMiNAClient(targetDid);
+      if (client && typeof client.play === 'function') {
+        return await client.play({ url });
+      }
+    }
     await this.init(targetDid);
-
     if (this.miSpeaker) {
       const res = await this.miSpeaker.play({ url });
       return !!res;
@@ -344,22 +349,59 @@ export class XiaoAiClient {
 
   public async pause(options?: { did?: string }): Promise<boolean> {
     const targetDid = options?.did || this.config.defaultDid || this.config.did || '';
-    await this.init(targetDid);
+    if (targetDid) {
+      const client: any = await this.getMiNAClient(targetDid);
+      if (client) {
+        if (typeof client.pause === 'function') {
+          return !!(await client.pause());
+        }
+        if (typeof client.callUbus === 'function') {
+          const res = await client.callUbus('mediaplayer', 'player_play_operation', { action: 'pause' });
+          return res?.code === 0;
+        }
+      }
+    }
+    const mina: any = this.miService?.MiNA;
+    if (mina) {
+      if (typeof mina.pause === 'function') return !!(await mina.pause());
+      if (typeof mina.player_pause === 'function') return !!(await mina.player_pause(targetDid));
+    }
+    return false;
+  }
 
-    if (this.miService?.MiNA) {
-      await this.miService.MiNA.player_pause(targetDid);
-      return true;
+  public async stop(options?: { did?: string }): Promise<boolean> {
+    const targetDid = options?.did || this.config.defaultDid || this.config.did || '';
+    if (targetDid) {
+      const client: any = await this.getMiNAClient(targetDid);
+      if (client) {
+        if (typeof client.stop === 'function') {
+          return !!(await client.stop());
+        }
+        if (typeof client.callUbus === 'function') {
+          const res = await client.callUbus('mediaplayer', 'player_play_operation', { action: 'stop' });
+          return res?.code === 0;
+        }
+      }
+    }
+    const mina: any = this.miService?.MiNA;
+    if (mina) {
+      if (typeof mina.stop === 'function') return !!(await mina.stop());
+      if (typeof mina.player_stop === 'function') return !!(await mina.player_stop(targetDid));
     }
     return false;
   }
 
   public async setVolume(volume: number, options?: { did?: string }): Promise<boolean> {
     const targetDid = options?.did || this.config.defaultDid || this.config.did || '';
-    await this.init(targetDid);
-
-    if (this.miService?.MiNA) {
-      await this.miService.MiNA.setVolume(volume);
-      return true;
+    if (targetDid) {
+      const client: any = await this.getMiNAClient(targetDid);
+      if (client && typeof client.setVolume === 'function') {
+        return !!(await client.setVolume(volume));
+      }
+    }
+    const mina: any = this.miService?.MiNA;
+    if (mina && typeof mina.setVolume === 'function') {
+      return !!(await mina.setVolume(volume));
     }
     return false;
   }
