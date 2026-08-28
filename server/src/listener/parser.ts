@@ -11,12 +11,15 @@ export interface ParsedVoiceCommand {
 }
 
 export class VoiceParser {
-  private playPrefixes = ['播放歌曲', '播放', '我想听', '放一首', '唱一首', '放首', '来首', '来一首'];
-  private stopKeywords = ['停止播放', '停止', '别唱了', '闭嘴', '关机', '不要放了'];
+  private playPrefixes = [
+    '点歌', '搜歌', '放歌', '听歌', '听一首', '来一曲', '唱一曲',
+    '播放歌曲', '播放', '我想听', '放一首', '唱一首', '放首', '来首', '来一首',
+  ];
+  private stopKeywords = ['停止播放', '停止', '别唱了', '闭嘴', '关机', '不要放了', '别放了'];
   private pauseKeywords = ['暂停播放', '暂停'];
   private resumeKeywords = ['继续播放', '恢复播放', '继续'];
-  private nextKeywords = ['下一首', '切歌', '换一首', '下一曲', '换歌'];
-  private prevKeywords = ['上一首', '上一曲'];
+  private nextKeywords = ['下一首', '切歌', '换一首', '下一曲', '换歌', '切下一首'];
+  private prevKeywords = ['上一首', '上一曲', '切上一首'];
 
   public parse(text: string): ParsedVoiceCommand {
     const raw = (text || '').trim();
@@ -64,6 +67,8 @@ export class VoiceParser {
         let keyword = raw.slice(prefix.length).trim();
         // 清理常见的后缀语气词，如“的歌”、“的歌曲”
         keyword = keyword.replace(/的(歌|歌曲|音乐)$/, '').trim();
+        // 将“周杰伦的晴天”智能清洗为“周杰伦 晴天”，精准定位原唱
+        keyword = keyword.replace(/(?<=[^\s])的(?=[^\s])/g, ' ').replace(/\s+/g, ' ').trim();
         if (keyword) {
           return { type: 'play', keyword, rawText: raw };
         }
