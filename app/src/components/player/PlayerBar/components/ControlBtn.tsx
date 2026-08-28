@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { TouchableOpacity } from 'react-native'
 import { Icon } from '@/components/common/Icon'
+import Text from '@/components/common/Text'
 import { useIsPlay } from '@/store/player/hook'
 import { useTheme } from '@/store/theme/hook'
 import { playNext, playPrev, togglePlay } from '@/core/player/player'
 import { createStyle } from '@/utils/tools'
 import { useHorizontalMode } from '@/utils/hooks'
+import { XiaoAiCastModal } from '@/components/XiaoAiCastModal'
 
 const BTN_SIZE = 24
 const handlePlayPrev = () => {
@@ -45,20 +48,27 @@ const TogglePlayBtn = () => {
   )
 }
 
+const XiaoAiCastBtn = () => {
+  const [visible, setVisible] = useState(false)
+
+  return (
+    <>
+      <TouchableOpacity style={styles.cotrolBtn} activeOpacity={0.5} onPress={() => { setVisible(true) }}>
+        <Text size={18}>🔊</Text>
+      </TouchableOpacity>
+      <XiaoAiCastModal visible={visible} onClose={() => { setVisible(false) }} />
+    </>
+  )
+}
+
 export default () => {
   const isHorizontalMode = useHorizontalMode()
   return (
     <>
-      {/* <TouchableOpacity activeOpacity={0.5} onPress={toggleNextPlayMode}>
-        <Text style={{ ...styles.cotrolBtn }}>
-          <Icon name={playModeIcon} style={{ color: theme.secondary10 }} size={18} />
-        </Text>
-      </TouchableOpacity>
-    */}
-      {/* {btnPrev} */}
       { isHorizontalMode ? <PlayPrevBtn /> : null }
       <TogglePlayBtn />
       <PlayNextBtn />
+      <XiaoAiCastBtn />
     </>
   )
 }

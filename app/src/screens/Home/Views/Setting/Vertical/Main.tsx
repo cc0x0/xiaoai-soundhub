@@ -11,6 +11,7 @@ import Backup from '../settings/Backup'
 import Other from '../settings/Other'
 import Version from '../settings/Version'
 import About from '../settings/About'
+import XiaoAi from '../settings/XiaoAi'
 import { createStyle } from '@/utils/tools'
 import { SETTING_SCREENS, type SettingScreenIds } from '../Main'
 
@@ -31,6 +32,7 @@ const ListItem = memo(({
   id,
 }: { id: SettingScreenIds }) => {
   switch (id) {
+    case 'xiaoai': return <XiaoAi />
     case 'player': return <Player />
     case 'lyric_desktop': return <LyricDesktop />
     case 'search': return <Search />

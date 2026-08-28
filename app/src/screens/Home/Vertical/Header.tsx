@@ -1,7 +1,5 @@
+import { useState } from 'react'
 import { View, TouchableOpacity } from 'react-native'
-// import Button from '@/components/common/Button'
-// import { navigations } from '@/navigation'
-// import { BorderWidths } from '@/theme'
 import { useTheme } from '@/store/theme/hook'
 import { useNavActiveId, useStatusbarHeight } from '@/store/common/hook'
 import { useI18n } from '@/lang'
@@ -14,6 +12,8 @@ import { scaleSizeH } from '@/utils/pixelRatio'
 import { HEADER_HEIGHT } from '@/config/constant'
 import { type InitState as CommonState } from '@/store/common/state'
 import SearchTypeSelector from '@/screens/Home/Views/Search/SearchTypeSelector'
+import { XiaoAiTTSModal } from '@/components/XiaoAiTTSModal'
+import { XiaoAiCastModal } from '@/components/XiaoAiCastModal'
 
 const headerComponents: Partial<Record<CommonState['navActiveId'], React.ReactNode>> = {
   nav_search: <SearchTypeSelector />,
@@ -31,6 +31,8 @@ const LeftHeader = () => {
   const id = useNavActiveId()
   const t = useI18n()
   const statusBarHeight = useStatusbarHeight()
+  const [ttsVisible, setTtsVisible] = useState(false)
+  const [castVisible, setCastVisible] = useState(false)
 
   const openMenu = () => {
     global.app_event.changeMenuVisible(true)
@@ -52,9 +54,17 @@ const LeftHeader = () => {
       </View>
       {headerComponents[id] ?? null}
 
-      {/* <TouchableOpacity style={styles.btn} onPress={openSetting}>
-        <Icon style={{ ...styles.btnText, color: theme['c-font'] }} name="setting" size={styles.btnText.fontSize} />
-      </TouchableOpacity> */}
+      <View style={styles.xiaoaiActions}>
+        <TouchableOpacity style={styles.xiaoaiBtn} onPress={() => { setTtsVisible(true) }}>
+          <Text style={[styles.xiaoaiBtnText, { color: theme['c-primary-font'] }]} size={12}>📢 播报</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.xiaoaiBtn} onPress={() => { setCastVisible(true) }}>
+          <Text style={[styles.xiaoaiBtnText, { color: theme['c-primary-font'] }]} size={12}>🔊 投播</Text>
+        </TouchableOpacity>
+      </View>
+
+      <XiaoAiTTSModal visible={ttsVisible} onClose={() => { setTtsVisible(false) }} />
+      <XiaoAiCastModal visible={castVisible} onClose={() => { setCastVisible(false) }} />
     </View>
   )
 }
@@ -72,6 +82,9 @@ const RightHeader = () => {
   const id = useNavActiveId()
   const statusBarHeight = useStatusbarHeight()
 
+  const [ttsVisible, setTtsVisible] = useState(false)
+  const [castVisible, setCastVisible] = useState(false)
+
   const openMenu = () => {
     global.app_event.changeMenuVisible(true)
   }
@@ -87,12 +100,20 @@ const RightHeader = () => {
         </TouchableOpacity>
       </View>
       {headerComponents[id] ?? null}
+      <View style={styles.xiaoaiActions}>
+        <TouchableOpacity style={styles.xiaoaiBtn} onPress={() => { setTtsVisible(true) }}>
+          <Text style={[styles.xiaoaiBtnText, { color: theme['c-primary-font'] }]} size={12}>📢 播报</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.xiaoaiBtn} onPress={() => { setCastVisible(true) }}>
+          <Text style={[styles.xiaoaiBtnText, { color: theme['c-primary-font'] }]} size={12}>🔊 投播</Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity style={styles.btn} onPress={openMenu}>
         <Icon color={theme['c-font']} name="menu" size={18} />
       </TouchableOpacity>
-      {/* <TouchableOpacity style={styles.btn} onPress={openSetting}>
-        <Icon style={{ ...styles.btnText, color: theme['c-font'] }} name="setting" size={styles.btnText.fontSize} />
-      </TouchableOpacity> */}
+
+      <XiaoAiTTSModal visible={ttsVisible} onClose={() => { setTtsVisible(false) }} />
+      <XiaoAiCastModal visible={castVisible} onClose={() => { setCastVisible(false) }} />
     </View>
   )
 }
@@ -152,6 +173,21 @@ const styles = createStyle({
   rightTitle: {
     paddingLeft: 16,
     paddingRight: 16,
+  },
+  xiaoaiActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: 6,
+  },
+  xiaoaiBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  xiaoaiBtnText: {
+    fontWeight: '600',
   },
 })
 
