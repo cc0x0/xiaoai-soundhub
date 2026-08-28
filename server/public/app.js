@@ -127,7 +127,9 @@ function bindEvents() {
   document.getElementById('btn-stop').addEventListener('click', () => controlPlay('stop'));
 }
 
-// 2. 状态查询
+let activeQueues = {};
+
+// 2. 状态查询 (毫秒级感知全屋各音箱播放状态)
 async function fetchStatus() {
   try {
     const res = await authFetch('/api/status');
@@ -136,20 +138,79 @@ async function fetchStatus() {
       document.getElementById('status-text').textContent = '服务在线';
       document.getElementById('active-source-badge').textContent = `音源: ${json.data.activeSource}`;
       
-      const current = json.data.currentPlayState;
-      if (current && current.music) {
-        document.getElementById('player-title').textContent = current.music.name;
-        document.getElementById('player-artist').textContent = current.music.singer;
-        isPlaying = true;
-        document.getElementById('btn-toggle-play').textContent = '⏸️';
-      } else {
+      activeQueues = json.data.activeQueues || {};
+      const activeDidList = Object.keys(activeQueues);
+
+      // 实时更新左侧音箱卡片中的放歌状态与波形
+      renderDevices();
+
+      // 更新底部播放控制区域
+      const multiContainer = document.getElementById('multi-player-list');
+      const singlePlayerBar = document.getElementById('player-bar');
+
+      if (activeDidList.length === 0) {
+        document.getElementById('player-title').innerHTML = '暂无播放歌曲';
+        document.getElementById('player-artist').textContent = '小爱音箱待命';
         isPlaying = false;
         document.getElementById('btn-toggle-play').textContent = '▶️';
+        if (multiContainer) multiContainer.style.display = 'none';
+        if (singlePlayerBar) singlePlayerBar.style.display = 'flex';
+      } else if (activeDidList.length === 1) {
+        const did = activeDidList[0];
+        const state = activeQueues[did];
+        const dev = devices.find((d) => d.did === did);
+        const devName = dev?.name || dev?.alias || did;
+
+        document.getElementById('player-title').innerHTML = `
+          <span class="speaker-badge">🔊 ${escapeHtml(devName)}</span>
+          <span class="song-title-text">${escapeHtml(state.music.name)}</span>
+        `;
+        document.getElementById('player-artist').textContent = state.music.singer || '';
+        isPlaying = true;
+        document.getElementById('btn-toggle-play').textContent = '⏸️';
+        if (multiContainer) multiContainer.style.display = 'none';
+        if (singlePlayerBar) singlePlayerBar.style.display = 'flex';
+      } else {
+        // 多台设备同时放歌 (支持不同歌曲独立展示与独立控制)
+        if (multiContainer) {
+          multiContainer.style.display = 'flex';
+          multiContainer.innerHTML = activeDidList
+            .map((did) => {
+              const state = activeQueues[did];
+              const dev = devices.find((d) => d.did === did);
+              const devName = dev?.name || dev?.alias || did;
+              return `
+              <div class="multi-player-card">
+                <div class="multi-card-info">
+                  <div class="multi-card-speaker">🔊 ${escapeHtml(devName)}</div>
+                  <div class="multi-card-song"><strong>${escapeHtml(state.music.name)}</strong> - ${escapeHtml(state.music.singer)}</div>
+                </div>
+                <div class="multi-card-controls">
+                  <button class="multi-ctrl-btn" onclick="controlSingleSpeaker('${did}', 'pause')" title="暂停">⏸️</button>
+                  <button class="multi-ctrl-btn" onclick="controlSingleSpeaker('${did}', 'resume')" title="继续">▶️</button>
+                  <button class="multi-ctrl-btn" onclick="controlSingleSpeaker('${did}', 'next')" title="下一首">⏭️</button>
+                  <button class="multi-ctrl-btn" onclick="controlSingleSpeaker('${did}', 'stop')" title="停止">⏹️</button>
+                </div>
+              </div>
+            `;
+            })
+            .join('');
+        }
+        if (singlePlayerBar) singlePlayerBar.style.display = 'none';
       }
     }
   } catch {
     document.getElementById('status-text').textContent = '连接中断';
   }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // 3. 拉取设备列表
@@ -187,17 +248,27 @@ function renderDevices() {
 
   devices.forEach((dev) => {
     const isSelected = selectedDids.has(dev.did);
+    const playState = activeQueues[dev.did];
+    const isDevicePlaying = !!playState;
+
     const item = document.createElement('div');
-    item.className = `device-item ${isSelected ? 'selected' : ''}`;
+    item.className = `device-item ${isSelected ? 'selected' : ''} ${isDevicePlaying ? 'is-playing' : ''}`;
     item.innerHTML = `
       <div class="device-checkbox">
         <input type="checkbox" ${isSelected ? 'checked' : ''} data-did="${dev.did}" />
       </div>
       <div class="device-info">
-        <div class="device-name">${dev.name || dev.alias || dev.did}</div>
-        <div class="device-model">${dev.model || '小爱音箱'}</div>
+        <div class="device-name-row">
+          <span class="device-name">${escapeHtml(dev.name || dev.alias || dev.did)}</span>
+          <span class="device-model">${escapeHtml(dev.model || '小爱音箱')}</span>
+        </div>
+        ${
+          isDevicePlaying
+            ? `<div class="device-playing-song">🎵 正在播放: <strong>${escapeHtml(playState.music.name)}</strong> - ${escapeHtml(playState.music.singer)}</div>`
+            : ''
+        }
       </div>
-      <div class="device-status-tag">${dev.online ? '在线' : '离线'}</div>
+      <div class="device-status-tag ${isDevicePlaying ? 'playing' : ''}">${isDevicePlaying ? '▶️ 播放中' : dev.online ? '在线' : '离线'}</div>
     `;
 
     item.addEventListener('click', (e) => {
@@ -356,4 +427,18 @@ async function controlPlay(action) {
     console.error('控制失败:', err);
   }
 }
+
+// 8. 独立控制单台指定音箱
+window.controlSingleSpeaker = async function (did, action) {
+  try {
+    await authFetch('/api/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, did }),
+    });
+    setTimeout(fetchStatus, 500);
+  } catch (err) {
+    console.error('单音箱控制失败:', err);
+  }
+};
 

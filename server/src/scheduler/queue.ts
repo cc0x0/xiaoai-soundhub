@@ -73,6 +73,14 @@ export class PlayScheduler {
     return firstKey ? this.currentPlayState.get(firstKey) : undefined;
   }
 
+  public getAllStates(): Record<string, PlayQueueItem> {
+    const res: Record<string, PlayQueueItem> = {};
+    for (const [did, state] of this.currentPlayState.entries()) {
+      res[did] = state;
+    }
+    return res;
+  }
+
   private clearTimer(did: string): void {
     const timer = this.timers.get(did);
     if (timer) {

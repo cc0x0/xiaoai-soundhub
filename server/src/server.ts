@@ -375,7 +375,7 @@ async function bootstrap() {
   // 7. 音频流中继代理 (Range 支持)
   app.get('/proxy/stream', StreamProxy.handleProxy);
 
-  // 8. 状态监控
+  // 8. 状态监控 (支持全屋多音箱并发状态实时反馈)
   app.get('/api/status', (req: Request, res: Response) => {
     res.json({
       ok: true,
@@ -386,6 +386,8 @@ async function bootstrap() {
         devicesCount: speakerClient.getCachedDevices().length,
         listenerRunning: config.listener.enabled,
         currentPlayState: scheduler.getCurrentState(),
+        activeQueues: scheduler.getAllStates(),
+        devices: speakerClient.getCachedDevices(),
       },
     } as ApiResponse);
   });

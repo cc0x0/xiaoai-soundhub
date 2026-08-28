@@ -110,18 +110,23 @@
           </div>
         </div>
 
-        <!-- 底部迷你控制栏 -->
-        <div class="player-bar" id="player-bar">
-          <div class="track-info">
-            <span class="track-title" id="player-title">暂无播放歌曲</span>
-            <span class="track-artist" id="player-artist">小爱音箱待命</span>
+        <!-- 底部控制栏容器 -->
+        <div class="player-bar-container" id="player-bar-container">
+          <!-- 单音箱播放状态条 -->
+          <div class="player-bar" id="player-bar">
+            <div class="track-info">
+              <span class="track-title" id="player-title">暂无播放歌曲</span>
+              <span class="track-artist" id="player-artist">小爱音箱待命</span>
+            </div>
+            <div class="player-controls">
+              <button class="control-btn" id="btn-prev" title="上一首">⏮️</button>
+              <button class="control-btn" id="btn-toggle-play" title="暂停/继续">⏸️</button>
+              <button class="control-btn" id="btn-next" title="下一首">⏭️</button>
+              <button class="control-btn" id="btn-stop" title="停止播放">⏹️</button>
+            </div>
           </div>
-          <div class="player-controls">
-            <button class="control-btn" id="btn-prev" title="上一首">⏮️</button>
-            <button class="control-btn" id="btn-toggle-play" title="暂停/继续">⏸️</button>
-            <button class="control-btn" id="btn-next" title="下一首">⏭️</button>
-            <button class="control-btn" id="btn-stop" title="停止播放">⏹️</button>
-          </div>
+          <!-- 全屋多音箱并发播放卡片列表 (当多台音箱各自放歌时展示) -->
+          <div class="multi-player-list" id="multi-player-list" style="display: none;"></div>
         </div>
       </section>
     </main>
