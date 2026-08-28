@@ -79,7 +79,7 @@ export class SourceEngine {
           config.data = options.data || options.body || options.form;
         }
 
-        const promise = axios(config)
+        void axios(config)
           .then((resp) => {
             const responseObj = {
               statusCode: resp.status,
