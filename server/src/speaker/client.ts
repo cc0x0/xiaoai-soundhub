@@ -351,14 +351,16 @@ export class XiaoAiClient {
     return false;
   }
 
-  public async getLatestAsk(deviceId?: string): Promise<any> {
-    await this.init(deviceId);
+  public async getLatestAsk(_deviceId?: string): Promise<any> {
+    if (!this.initialized) {
+      await this.init();
+    }
     if (this.miService?.MiNA) {
       if (typeof this.miService.MiNA.getConversations === 'function') {
         return await this.miService.MiNA.getConversations({ limit: 2 });
       }
       if (typeof (this.miService.MiNA as any).get_latest_ask === 'function') {
-        return await (this.miService.MiNA as any).get_latest_ask(deviceId);
+        return await (this.miService.MiNA as any).get_latest_ask(_deviceId);
       }
     }
     return null;

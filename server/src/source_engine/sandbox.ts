@@ -393,7 +393,7 @@ export class SourceEngine {
     if (songItem.source === 'wy' || /^\d+$/.test(songId)) {
       try {
         const wyUrl = `https://music.163.com/song/media/outer/url?id=${songId}.mp3`;
-        const resp = await axios.head(wyUrl, { timeout: 6000, maxRedirects: 0, validateStatus: (s) => s >= 200 && s < 400 });
+        const resp = await axios.head(wyUrl, { timeout: 5000, maxRedirects: 0, validateStatus: (s) => s >= 200 && s < 400 });
         if (resp.status === 302 && resp.headers.location && !resp.headers.location.includes('404')) {
           console.log(`[SourceEngine] ✅ 网易云直连解析成功: ${songName}`);
           return resp.headers.location;
@@ -401,30 +401,53 @@ export class SourceEngine {
       } catch {}
     }
 
-    // 3. 尝试公网 GDAPI 聚合通道
-    try {
-      const gdUrl = `https://music-api.gdstudio.xyz/api.php?types=url&source=kugou&id=${encodeURIComponent(songId)}&br=320`;
-      const resp = await axios.get(gdUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (resp.data?.url && typeof resp.data.url === 'string' && resp.data.url.startsWith('http')) {
-        console.log(`[SourceEngine] ✅ GDAPI 聚合解析成功: ${songName}`);
-        return resp.data.url;
-      }
-    } catch {}
-
-    // 4. 终极回退：根据歌名与歌手全网模糊搜取播放直链
-    try {
-      const searchKwd = `${singer} ${songName}`.trim();
-      const backupSearch = `https://complexsearch.kugou.com/v2/search/song?keyword=${encodeURIComponent(searchKwd)}&page=1&pagesize=1&platform=WebFilter`;
-      const resp = await axios.get(backupSearch, { timeout: 8000 });
-      const firstHash = resp.data?.data?.lists?.[0]?.FileHash;
-      if (firstHash) {
-        const kgPlay = `https://wwwapi.kugou.com/yy/index.php?r=play/getdata&hash=${firstHash}&mid=1`;
-        const playResp = await axios.get(kgPlay, { timeout: 8000, headers: { Cookie: 'kg_mid=1' } });
-        const playUrl = playResp.data?.data?.play_url;
-        if (playUrl && typeof playUrl === 'string' && playUrl.startsWith('http')) {
-          console.log(`[SourceEngine] ✅ 模糊匹配取链成功: ${searchKwd}`);
-          return playUrl;
+    // 3. 尝试公网多源聚合通道 (网易云、酷狗、QQ音乐等)
+    const candidateSources = songItem.source === 'wy' ? ['netease', 'kugou', 'tencent'] : ['kugou', 'netease', 'tencent'];
+    for (const src of candidateSources) {
+      try {
+        const gdUrl = `https://music-api.gdstudio.xyz/api.php?types=url&source=${src}&id=${encodeURIComponent(songId)}&br=320`;
+        const resp = await axios.get(gdUrl, { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (resp.data?.url && typeof resp.data.url === 'string' && resp.data.url.startsWith('http')) {
+          console.log(`[SourceEngine] ✅ GDAPI [${src}] 聚合解析成功: ${songName}`);
+          return resp.data.url;
         }
+      } catch {}
+    }
+
+    // 4. 终极回退：全网歌名+歌手模糊匹配直链提取 (解决李玟刀马旦、林俊杰江南等所有特殊曲目)
+    const searchKwd = `${singer} ${songName}`.trim() || songName;
+    for (const platform of ['netease', 'kugou', 'tencent']) {
+      try {
+        const searchApi = `https://music-api.gdstudio.xyz/api.php?types=search&count=5&source=${platform}&pages=1&name=${encodeURIComponent(searchKwd)}`;
+        const sResp = await axios.get(searchApi, { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const first = sResp.data?.[0];
+        if (first?.id) {
+          const urlApi = `https://music-api.gdstudio.xyz/api.php?types=url&source=${platform}&id=${first.id}&br=320`;
+          const uResp = await axios.get(urlApi, { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+          if (uResp.data?.url && typeof uResp.data.url === 'string' && uResp.data.url.startsWith('http')) {
+            console.log(`[SourceEngine] ✅ 全网模糊跨源 [${platform}] 成功解析: ${searchKwd}`);
+            return uResp.data.url;
+          }
+        }
+      } catch {}
+    }
+
+    // 5. 网易云搜索外链终极兜底
+    try {
+      const wySearch = await axios.get(`https://music.163.com/api/search/get/web?csrf_token=&hlpretag=&hlposttag=&s=${encodeURIComponent(searchKwd)}&type=1&offset=0&total=true&limit=5`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 6000,
+      });
+      const songs = wySearch.data?.result?.songs || [];
+      for (const s of songs) {
+        const wyUrl = `https://music.163.com/song/media/outer/url?id=${s.id}.mp3`;
+        try {
+          const head = await axios.head(wyUrl, { maxRedirects: 0, validateStatus: (st) => st >= 200 && st < 400, timeout: 4000 });
+          if (head.status === 302 && head.headers.location && !head.headers.location.includes('404')) {
+            console.log(`[SourceEngine] ✅ 网易云智能匹配解析成功: ${searchKwd}`);
+            return head.headers.location;
+          }
+        } catch {}
       }
     } catch {}
 
