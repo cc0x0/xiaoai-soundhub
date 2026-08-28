@@ -63,11 +63,19 @@ export class XiaoAiClient {
 
   private async withMiCwd<T>(fn: () => Promise<T>): Promise<T> {
     const originalCwd = process.cwd();
+    const originalExit = process.exit;
     const cacheDir = this.getMiCacheDir();
+
+    // 拦截底层 @mi-gpt/miot 触发的 process.exit 异常退出调用，保护容器 100% 稳定运行
+    (process as any).exit = (code?: number) => {
+      console.warn(`[XiaoAiClient] 🛡️ 拦截到底层退出信号 (code: ${code})，已安全保护容器常驻运行`);
+    };
+
     try {
       process.chdir(cacheDir);
       return await fn();
     } finally {
+      process.exit = originalExit;
       try {
         process.chdir(originalCwd);
       } catch {
