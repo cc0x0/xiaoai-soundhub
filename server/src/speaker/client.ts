@@ -122,9 +122,10 @@ export class XiaoAiClient {
       userId: this.config.userId,
       password: this.config.password,
       passToken: this.config.passToken,
+      pass: this.config.passToken ? { passToken: this.config.passToken } : undefined,
       did: '',
-      debug: false,
-      relogin: true,
+      debug: !!this.config.verboseLog,
+      relogin: false,
     };
 
     const [MiNAClient, MIoTClient] = await this.withMiCwd(() =>
