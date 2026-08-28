@@ -23,10 +23,14 @@ function loadConfig(): AppConfig {
   const examplePath = path.join(__dirname, '..', 'config.example.json');
 
   let rawConfig: any = {};
-  if (fs.existsSync(configPath)) {
-    rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  } else if (fs.existsSync(examplePath)) {
-    rawConfig = JSON.parse(fs.readFileSync(examplePath, 'utf-8'));
+  try {
+    if (fs.existsSync(configPath) && fs.statSync(configPath).isFile()) {
+      rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } else if (fs.existsSync(examplePath) && fs.statSync(examplePath).isFile()) {
+      rawConfig = JSON.parse(fs.readFileSync(examplePath, 'utf-8'));
+    }
+  } catch (e) {
+    console.warn('[Config] 配置文件读取跳过，将使用环境变量配置:', (e as Error).message);
   }
 
   // 环境变量覆盖

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   soundhub-server:
     build: .
@@ -20,7 +18,6 @@ services:
       - PUBLIC_BASE_URL=http://你的云服务器IP:8989
       - ENABLE_LISTENER=true
     volumes:
-      - ./config.json:/app/config.json:ro
       - ./sources:/app/sources
       - ./data:/root/.xiaoai-soundhub
 
