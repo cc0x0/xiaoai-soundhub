@@ -266,11 +266,20 @@ export class XiaoAiClient {
       
       try {
         await this.playAudio(chimeUrl, { did: targetDid });
-        // 等待提示音播放结束（约 1000ms）再启动朗读
-        await new Promise((resolve) => setTimeout(resolve, 1100));
+        // 等待提示音播放结束并让音箱声道释放（约 1400ms）再启动朗读
+        await new Promise((resolve) => setTimeout(resolve, 1400));
       } catch {}
     }
 
+    // 优先使用 MiSpeaker / MiNA 原生强插语音通道（在放歌时具有最高硬件优先级）
+    try {
+      if (this.miSpeaker) {
+        const ok = await this.miSpeaker.play({ text });
+        if (ok) return true;
+      }
+    } catch {}
+
+    // 次选 MiOT doAction 通道
     const device = this.deviceCache.find((d) => d.did === targetDid);
     const model = device?.model || '';
     const [siid, aiid] = resolveTTSCommand(
@@ -279,20 +288,12 @@ export class XiaoAiClient {
       this.config.ttsFallbackCommand || [5, 1]
     );
 
-    // 优先尝试 MiOT doAction
     try {
       if (this.miService) {
         const res = await this.miService.MiOT.doAction(siid, aiid, text);
         if (res) return true;
       }
-    } catch {
-      // 回退至默认 MiSpeaker / MiNA
-    }
-
-    if (this.miSpeaker) {
-      await this.miSpeaker.play({ text });
-      return true;
-    }
+    } catch {}
 
     return false;
   }
