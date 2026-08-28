@@ -267,6 +267,36 @@ body {
   border-color: var(--primary);
 }
 
+.chime-selector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+}
+
+.chime-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.chime-select {
+  background: #1e293b;
+  border: 1px solid var(--card-border);
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+.chime-select:focus {
+  border-color: var(--primary);
+}
+
 /* Buttons */
 .btn {
   padding: 10px 18px;

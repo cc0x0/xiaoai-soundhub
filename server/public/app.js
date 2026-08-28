@@ -256,11 +256,13 @@ async function sendTTS() {
   btn.disabled = true;
   btn.textContent = '播报发送中...';
 
+  const chime = document.getElementById('tts-chime-select')?.value || 'dingdong';
+
   try {
     const res = await authFetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, dids: targetDids }),
+      body: JSON.stringify({ text, dids: targetDids, chime }),
     });
     const json = await res.json();
     if (json.ok) {

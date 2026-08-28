@@ -225,9 +225,27 @@ export class XiaoAiClient {
     return this.deviceCache;
   }
 
-  public async tts(text: string, options?: { did?: string }): Promise<boolean> {
+  public async tts(
+    text: string,
+    options?: { did?: string; chime?: string | boolean; publicBaseUrl?: string }
+  ): Promise<boolean> {
     const targetDid = options?.did || this.config.defaultDid || this.config.did || '';
     await this.init(targetDid);
+
+    // 如果指定了提示音（如 'dingdong', 'gentle', 'marimba' 或 true）
+    if (options?.chime && options.chime !== 'none') {
+      const chimeName = typeof options.chime === 'string' && ['gentle', 'marimba', 'dingdong'].includes(options.chime)
+        ? options.chime
+        : 'dingdong';
+      const baseUrl = options.publicBaseUrl || 'http://localhost:8080';
+      const chimeUrl = `${baseUrl.replace(/\/$/, '')}/audio/${chimeName}.wav`;
+      
+      try {
+        await this.playAudio(chimeUrl, { did: targetDid });
+        // 等待提示音播放结束（约 1000ms）再启动朗读
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+      } catch {}
+    }
 
     const device = this.deviceCache.find((d) => d.did === targetDid);
     const model = device?.model || '';
@@ -255,14 +273,18 @@ export class XiaoAiClient {
     return false;
   }
 
-  public async ttsMulti(text: string, dids: string[]): Promise<Record<string, boolean>> {
+  public async ttsMulti(
+    text: string,
+    dids: string[],
+    options?: { chime?: string | boolean; publicBaseUrl?: string }
+  ): Promise<Record<string, boolean>> {
     const targetDids = dids.length > 0 ? dids : [this.config.defaultDid || this.config.did || ''];
     const results: Record<string, boolean> = {};
 
     await Promise.allSettled(
       targetDids.map(async (did) => {
         try {
-          const ok = await this.tts(text, { did });
+          const ok = await this.tts(text, { did, chime: options?.chime, publicBaseUrl: options?.publicBaseUrl });
           results[did] = ok;
         } catch {
           results[did] = false;

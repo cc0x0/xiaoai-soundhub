@@ -64,6 +64,17 @@
             <span class="chip" data-text="主人，这是一条全屋广播测试消息。">🔊 系统测试</span>
           </div>
 
+          <!-- 提示音选择 -->
+          <div class="chime-selector-row">
+            <span class="chime-label">🎵 播报前导提示音：</span>
+            <select id="tts-chime-select" class="chime-select">
+              <option value="dingdong" selected>🔔 经典清脆叮咚 (推荐)</option>
+              <option value="gentle">✨ 温暖和弦声</option>
+              <option value="marimba">💧 灵动水滴声</option>
+              <option value="none">🚫 无提示音 (直接播报)</option>
+            </select>
+          </div>
+
           <div class="tts-actions">
             <button class="btn btn-primary" id="btn-send-tts">📢 发送语音播报 (所选音箱)</button>
           </div>

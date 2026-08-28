@@ -229,17 +229,20 @@ async function bootstrap() {
     }
   });
 
-  // 2. 发送文本语音 TTS (单选或多选全屋广播)
+  // 2. 发送文本语音 TTS (单选或多选全屋广播，支持清脆提示音预播)
   app.post('/api/tts', async (req: Request, res: Response) => {
     try {
-      const { text, did, dids } = req.body;
+      const { text, did, dids, chime } = req.body;
       if (!text) {
         res.status(400).json({ ok: false, error: 'text is required' });
         return;
       }
 
       const targetDids: string[] = dids || (did ? [did] : []);
-      const results = await speakerClient.ttsMulti(text, targetDids);
+      const results = await speakerClient.ttsMulti(text, targetDids, {
+        chime: chime !== undefined ? chime : 'dingdong',
+        publicBaseUrl: config.server.publicBaseUrl,
+      });
       res.json({ ok: true, data: results } as ApiResponse);
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message } as ApiResponse);
