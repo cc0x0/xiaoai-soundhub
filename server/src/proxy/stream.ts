@@ -79,6 +79,9 @@ export class StreamProxy {
       response.data.pipe(res);
 
       response.data.on('error', (err: any) => {
+        if (err.message === 'aborted' || err.code === 'ECONNRESET' || err.message?.includes('aborted')) {
+          return; // 音箱切换歌曲或暂停时主动断开连接，属正常流关闭
+        }
         console.error('[StreamProxy] 流读取错误:', err.message);
         if (!res.headersSent) {
           res.status(502).end();
