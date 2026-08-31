@@ -22,6 +22,10 @@ export class SourceEngine {
     this.activeSourceFile = activeSourceFile;
   }
 
+  public getActiveSource(): string {
+    return this.activeSourceFile;
+  }
+
   private requestHandlers: Array<({ action, source, info }: any) => Promise<any>> = [];
 
   public async loadSource(sourceFileName?: string): Promise<boolean> {

@@ -286,10 +286,18 @@ async function bootstrap() {
     }
   });
 
-  // 设备状态查询
+  // 设备状态查询 (全屋音箱独立播放队列状态)
   app.get('/api/status', (req: Request, res: Response) => {
     const states = scheduler.getAllStates();
-    res.json({ ok: true, data: { states, timestamp: Date.now() } });
+    res.json({
+      ok: true,
+      data: {
+        states,
+        activeQueues: states,
+        activeSource: sourceEngine.getActiveSource(),
+        timestamp: Date.now(),
+      },
+    });
   });
 
   // 页面重定向路由
