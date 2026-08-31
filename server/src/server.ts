@@ -70,7 +70,7 @@ async function bootstrap() {
     defaultDid: process.env.XIAOI_DEFAULT_DID || '',
   });
 
-  const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl);
+  const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl, db);
   const speakerManager = new MultiTenantSpeakerManager(db, securitySalt, scheduler, sourceEngine);
 
   // 自动为超级管理员租户初始化并拉取音箱设备
@@ -109,7 +109,7 @@ async function bootstrap() {
   // REST API 模块挂载
   app.use('/api/auth', createAuthRouter(db, jwtSecret));
   app.use('/api/user', authMiddleware(jwtSecret), createUserRouter(db, speakerManager, securitySalt, sourceEngine, scheduler));
-  app.use('/api/admin', authMiddleware(jwtSecret), adminOnlyMiddleware, createAdminRouter(db));
+  app.use('/api/admin', authMiddleware(jwtSecret), adminOnlyMiddleware, createAdminRouter(db, sourceEngine, speakerManager));
   app.use('/api/payment', createPaymentRouter(db));
 
   // 兼容旧版客户端接口: /api/devices

@@ -26,6 +26,7 @@
           <span id="user-plan-badge" class="plan-badge plan-free">FREE</span>
         </div>
         <button class="btn btn-secondary btn-sm" id="btn-open-bind-modal">🔑 绑定米家</button>
+        <button class="btn btn-secondary btn-sm" id="btn-open-settings-modal">⚙️ 偏好设置</button>
         <button class="btn btn-secondary btn-sm" id="btn-open-redeem-modal">🎁 兑换VIP</button>
         <button class="btn btn-secondary btn-sm" id="btn-go-admin" style="display: none;" onclick="window.location.href='/admin'">🛠️ 管理后台</button>
         <button class="btn btn-secondary btn-sm" id="btn-logout" onclick="handleUserLogout()">🚪 退出</button>
@@ -218,6 +219,51 @@
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
         <button class="btn btn-secondary" onclick="closeRedeemModal()">取消</button>
         <button class="btn btn-primary" id="btn-submit-redeem">立即兑换激活</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 用户个性化偏好设置弹窗 -->
+  <div class="modal-overlay" id="user-settings-modal" style="display: none;">
+    <div class="auth-card" style="max-width: 480px;">
+      <div class="auth-icon">⚙️</div>
+      <h3>个人偏好与口令设置</h3>
+      <p class="auth-desc" style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 14px;">
+        定制您的小爱音箱专属点歌口令、停止词与高保真音质偏好。
+      </p>
+
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">自定义点歌唤醒前缀 (多个以逗号隔开)</label>
+        <input type="text" id="user-pref-prefixes" placeholder="例如: 播放, 搜歌, 放一首, 我想听, 来首" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">自定义停止 / 闭嘴口令 (多个以逗号隔开)</label>
+        <input type="text" id="user-pref-stop-words" placeholder="例如: 别唱了, 闭嘴, 退下, 停止播放, 关掉音乐" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">首选播放音质</label>
+        <select id="user-pref-quality" style="width: 100%; box-sizing: border-box; padding: 10px; background: #1a1a24; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
+          <option value="320k">🎵 320k 高品质 MP3 (推荐，极速流畅)</option>
+          <option value="flac">💎 FLAC 无损音质 (极致发烧原声)</option>
+          <option value="128k">⚡ 128k 标准流畅</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">TTS 语音广播默认前导提示音</label>
+        <select id="user-pref-chime" style="width: 100%; box-sizing: border-box; padding: 10px; background: #1a1a24; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
+          <option value="dingdong">🔔 经典清脆叮咚 (推荐)</option>
+          <option value="gentle">✨ 温暖和弦声</option>
+          <option value="marimba">💧 灵动水滴声</option>
+          <option value="none">🚫 无提示音 (直接播报)</option>
+        </select>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn btn-secondary" onclick="closeUserSettingsModal()">取消</button>
+        <button class="btn btn-primary" id="btn-save-user-settings">💾 保存个性化偏好</button>
       </div>
     </div>
   </div>

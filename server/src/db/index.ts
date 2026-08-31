@@ -173,6 +173,8 @@ export class AppDatabase {
 
     // 2. 初始化全局系统魔数参数
     const defaultSettings: [string, string, string, string][] = [
+      ['active_source', 'my-custom-source.js', 'source', '当前生效音乐源插件 (sources/ 目录下脚本)'],
+      ['enable_listener', 'true', 'listener', '全局语音指令监听总开关 (true/false)'],
       ['poll_interval_ms', '1200', 'listener', '小爱云端对话轮询间隔 (毫秒)'],
       ['switch_buffer_ms', '2000', 'scheduler', '切歌等待缓冲区冗余时间 (毫秒)'],
       ['chime_delay_ms', '1400', 'audio', '提示音播放与语音朗读间隔等待延时 (毫秒)'],

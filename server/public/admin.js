@@ -110,22 +110,61 @@ async function submitPlanChange() {
 }
 
 let cachedSettings = [];
+let availableSources = [];
+
 async function loadSystemSettings() {
   try {
+    try {
+      const srcRes = await fetch('/api/admin/sources', { headers: { 'Authorization': 'Bearer ' + token } });
+      const srcJson = await srcRes.json();
+      if (srcJson.ok) availableSources = srcJson.data || [];
+    } catch {}
+
     const res = await fetch('/api/admin/settings', { headers: { 'Authorization': 'Bearer ' + token } });
     const json = await res.json();
     if (json.ok) {
       cachedSettings = json.data;
       const container = document.getElementById('settings-form-container');
-      container.innerHTML = json.data.map(s => `
-        <div style="margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color);">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <strong style="font-size: 14px;">${escapeHtml(s.description || s.key)}</strong>
-            <span style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${s.key} (${s.category})</span>
+      container.innerHTML = json.data.map(s => {
+        let inputHtml = '';
+        if (s.key === 'active_source') {
+          const sources = availableSources.length > 0 ? availableSources : ['my-custom-source.js'];
+          inputHtml = `
+            <select id="setting-input-${s.key}" style="width:100%;box-sizing:border-box;padding:10px;background:#1a1a24;border:1px solid var(--border-color);color:#fff;border-radius:6px;font-size:14px;">
+              ${sources.map(src => `<option value="${src}" ${src === s.value ? 'selected' : ''}>🎵 ${src}</option>`).join('')}
+            </select>
+          `;
+        } else if (s.key === 'enable_listener' || s.key === 'allow_registration') {
+          inputHtml = `
+            <select id="setting-input-${s.key}" style="width:100%;box-sizing:border-box;padding:10px;background:#1a1a24;border:1px solid var(--border-color);color:#fff;border-radius:6px;font-size:14px;">
+              <option value="true" ${s.value === 'true' ? 'selected' : ''}>✅ 开启 (true)</option>
+              <option value="false" ${s.value === 'false' ? 'selected' : ''}>⛔ 关闭 (false)</option>
+            </select>
+          `;
+        } else if (s.key === 'default_platform') {
+          inputHtml = `
+            <select id="setting-input-${s.key}" style="width:100%;box-sizing:border-box;padding:10px;background:#1a1a24;border:1px solid var(--border-color);color:#fff;border-radius:6px;font-size:14px;">
+              <option value="kw" ${s.value === 'kw' ? 'selected' : ''}>酷我音乐 (kw - 推荐)</option>
+              <option value="wy" ${s.value === 'wy' ? 'selected' : ''}>网易云音乐 (wy)</option>
+              <option value="tx" ${s.value === 'tx' ? 'selected' : ''}>QQ音乐 (tx)</option>
+              <option value="kg" ${s.value === 'kg' ? 'selected' : ''}>酷狗音乐 (kg)</option>
+              <option value="mg" ${s.value === 'mg' ? 'selected' : ''}>咪咕音乐 (mg)</option>
+            </select>
+          `;
+        } else {
+          inputHtml = `<input type="text" id="setting-input-${s.key}" value="${escapeHtml(s.value)}" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 14px;">`;
+        }
+
+        return `
+          <div style="margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color);">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <strong style="font-size: 14px;">${escapeHtml(s.description || s.key)}</strong>
+              <span style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${s.key} (${s.category})</span>
+            </div>
+            ${inputHtml}
           </div>
-          <input type="text" id="setting-input-${s.key}" value="${escapeHtml(s.value)}" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 14px;">
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
   } catch (e) {
     console.error(e);

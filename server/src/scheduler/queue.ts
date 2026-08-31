@@ -7,20 +7,23 @@ import { MusicItem, PlayQueueItem } from '../types/index.js';
 import { SourceEngine } from '../source_engine/sandbox.js';
 import { XiaoAiClient } from '../speaker/client.js';
 import { StreamProxy } from '../proxy/stream.js';
+import { AppDatabase } from '../db/index.js';
 
 export class PlayScheduler {
   private sourceEngine: SourceEngine;
   private client: XiaoAiClient;
   private publicBaseUrl: string;
+  private db?: AppDatabase;
   private currentPlayState: Map<string, PlayQueueItem> = new Map();
   private playlist: Map<string, MusicItem[]> = new Map();
   private currentIndex: Map<string, number> = new Map();
   private timers: Map<string, NodeJS.Timeout> = new Map();
 
-  constructor(sourceEngine: SourceEngine, client: XiaoAiClient, publicBaseUrl: string) {
+  constructor(sourceEngine: SourceEngine, client: XiaoAiClient, publicBaseUrl: string, db?: AppDatabase) {
     this.sourceEngine = sourceEngine;
     this.client = client;
     this.publicBaseUrl = publicBaseUrl;
+    this.db = db;
   }
 
   public async playMusicList(did: string, list: MusicItem[], startIndex = 0): Promise<boolean> {
@@ -131,9 +134,10 @@ export class PlayScheduler {
     console.log(`[PlayScheduler] 下发直链至音箱 [${did}]: ${proxyStreamUrl}`);
     const ok = await this.client.playAudio(proxyStreamUrl, { did });
 
-    // 5. 设置自动切歌定时器 (带硬件真实状态感知守护锁)
+    // 5. 设置自动切歌定时器 (带硬件真实状态感知守护锁 & 动态读取 switch_buffer_ms)
     if (ok && duration > 5) {
-      const timeoutMs = (duration + 2) * 1000;
+      const bufferMs = Number(this.db?.getSystemSetting('switch_buffer_ms', '2000')) || 2000;
+      const timeoutMs = (duration * 1000) + bufferMs;
       const timer = setTimeout(async () => {
         try {
           // 守护锁：在切歌前主动探测小爱硬件当前真实状态

@@ -1,8 +1,16 @@
 import { Router, Response } from 'express';
 import { AppDatabase } from '../db/index.js';
 import { AuthRequest } from './auth.js';
+import { SourceEngine } from '../source_engine/sandbox.js';
+import { MultiTenantSpeakerManager } from '../speaker/multi_tenant_manager.js';
+import fs from 'fs';
+import path from 'path';
 
-export function createAdminRouter(db: AppDatabase): Router {
+export function createAdminRouter(
+  db: AppDatabase,
+  sourceEngine?: SourceEngine,
+  speakerManager?: MultiTenantSpeakerManager
+): Router {
   const router = Router();
 
   // 1. 系统运行大屏概览
@@ -60,27 +68,68 @@ export function createAdminRouter(db: AppDatabase): Router {
     });
   });
 
-  // 4. 获取全局系统设置
+  // 4. 获取全局可用音源插件列表 (扫描 sources/ 目录)
+  router.get('/sources', (req: AuthRequest, res: Response) => {
+    try {
+      const sourcesDir = path.resolve(process.cwd(), 'sources');
+      if (!fs.existsSync(sourcesDir)) {
+        res.json({ ok: true, data: ['my-custom-source.js'] });
+        return;
+      }
+      const files = fs.readdirSync(sourcesDir).filter((f) => f.endsWith('.js'));
+      res.json({ ok: true, data: files });
+    } catch {
+      res.json({ ok: true, data: ['my-custom-source.js'] });
+    }
+  });
+
+  // 5. 获取全局系统设置
   router.get('/settings', (req: AuthRequest, res: Response) => {
     const list = db.getAllSystemSettings();
     res.json({ ok: true, data: list });
   });
 
-  // 5. 在线热更新系统设置
-  router.post('/settings', (req: AuthRequest, res: Response) => {
+  // 6. 在线热更新系统设置 (即时触发音源重载与监听池启停)
+  router.post('/settings', async (req: AuthRequest, res: Response) => {
     const { settings } = req.body; // array of { key, value }
     if (!Array.isArray(settings)) {
       res.status(400).json({ ok: false, error: 'settings must be an array' });
       return;
     }
 
+    let newActiveSource = '';
+    let newEnableListener = '';
+
     for (const item of settings) {
       if (item.key && item.value !== undefined) {
         db.updateSystemSetting(item.key, String(item.value));
+        if (item.key === 'active_source') newActiveSource = String(item.value);
+        if (item.key === 'enable_listener') newEnableListener = String(item.value);
       }
     }
 
-    res.json({ ok: true, msg: '系统全局参数已热更新' });
+    // 1. 若音源发生变更，即刻热加载新音源
+    if (newActiveSource && sourceEngine) {
+      try {
+        await sourceEngine.loadSource(newActiveSource);
+        console.log(`[Admin] 🎵 全局音源已热切换为: ${newActiveSource}`);
+      } catch (e: any) {
+        console.error('[Admin] 音源热切换失败:', e.message);
+      }
+    }
+
+    // 2. 若语音监听开关发生变更，即刻启停监听池
+    if (newEnableListener && speakerManager) {
+      if (newEnableListener === 'false') {
+        speakerManager.stopAllListeners();
+        console.log('[Admin] 🔇 全局语音监听已暂停');
+      } else {
+        speakerManager.startAllActiveListeners().catch(() => {});
+        console.log('[Admin] 📢 全局语音监听已恢复运行');
+      }
+    }
+
+    res.json({ ok: true, msg: '系统全局参数已热更新并即时生效！' });
   });
 
   return router;

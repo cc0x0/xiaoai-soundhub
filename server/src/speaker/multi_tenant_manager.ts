@@ -57,6 +57,11 @@ export class MultiTenantSpeakerManager {
   }
 
   public async startAllActiveListeners(): Promise<void> {
+    const isEnabled = this.db.getSystemSetting('enable_listener', 'true') !== 'false';
+    if (!isEnabled) {
+      console.log('[MultiTenant] 🔇 全局语音监听已被管理员设为关闭，跳过启动');
+      return;
+    }
     const allAccs = this.db.getAllMiAccounts();
     console.log(`[MultiTenant] 正在启动 ${allAccs.length} 个租户的小爱语音监听池...`);
     for (const acc of allAccs) {
@@ -64,8 +69,18 @@ export class MultiTenantSpeakerManager {
     }
   }
 
+  public stopAllListeners(): void {
+    for (const userId of Array.from(this.activeListeners.keys())) {
+      this.stopListener(userId);
+    }
+    console.log('[MultiTenant] 🔇 已暂停所有租户的语音监听池');
+  }
+
   public async startListener(userId: string): Promise<boolean> {
     this.stopListener(userId);
+
+    const isEnabled = this.db.getSystemSetting('enable_listener', 'true') !== 'false';
+    if (!isEnabled) return false;
 
     const client = await this.getClient(userId);
     if (!client) return false;
@@ -134,11 +149,15 @@ export class MultiTenantSpeakerManager {
       // 获取用户个性化口令与设置
       const userSettings = this.db.getUserSettings(userId);
       let customStop: string[] = [];
+      let customPrefixes: string[] = [];
       try {
         customStop = JSON.parse(userSettings.custom_stop_keywords || '[]');
       } catch {}
+      try {
+        customPrefixes = JSON.parse(userSettings.custom_prefixes || '[]');
+      } catch {}
 
-      const parser = new VoiceParser(customStop);
+      const parser = new VoiceParser(customStop, customPrefixes);
       const cmd = parser.parse(query);
 
       console.log(`[MultiTenant] 🎯 用户 [${userId}] 音箱 [${gatewaySpeaker.name}] 捕获指令: "${query}" => ${cmd.type}`);

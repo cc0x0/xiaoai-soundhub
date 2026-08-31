@@ -88,6 +88,14 @@ function bindEvents() {
   });
   document.getElementById('btn-submit-redeem')?.addEventListener('click', submitRedeem);
 
+  // 个人偏好设置弹窗
+  document.getElementById('btn-open-settings-modal')?.addEventListener('click', () => {
+    loadUserSettings();
+    const m = document.getElementById('user-settings-modal');
+    if (m) m.style.display = 'flex';
+  });
+  document.getElementById('btn-save-user-settings')?.addEventListener('click', saveUserSettings);
+
   // 快捷常用语
   document.querySelectorAll('.chip').forEach((chip) => {
     chip.addEventListener('click', () => {
@@ -127,6 +135,71 @@ window.closeRedeemModal = function() {
   const m = document.getElementById('redeem-modal');
   if (m) m.style.display = 'none';
 };
+
+window.closeUserSettingsModal = function() {
+  const m = document.getElementById('user-settings-modal');
+  if (m) m.style.display = 'none';
+};
+
+async function loadUserSettings() {
+  try {
+    const res = await authFetch('/api/user/settings');
+    const json = await res.json();
+    if (json.ok && json.data) {
+      const s = json.data;
+      let prefixes = [];
+      let stopWords = [];
+      try { prefixes = JSON.parse(s.custom_prefixes || '[]'); } catch {}
+      try { stopWords = JSON.parse(s.custom_stop_keywords || '[]'); } catch {}
+
+      const prefInput = document.getElementById('user-pref-prefixes');
+      if (prefInput) prefInput.value = prefixes.join(', ');
+
+      const stopInput = document.getElementById('user-pref-stop-words');
+      if (stopInput) stopInput.value = stopWords.join(', ');
+
+      const qualitySelect = document.getElementById('user-pref-quality');
+      if (qualitySelect && s.preferred_quality) qualitySelect.value = s.preferred_quality;
+
+      const chimeSelect = document.getElementById('user-pref-chime');
+      if (chimeSelect && s.default_chime) chimeSelect.value = s.default_chime;
+    }
+  } catch (e) {
+    console.error('Load user settings failed:', e);
+  }
+}
+
+async function saveUserSettings() {
+  const prefRaw = document.getElementById('user-pref-prefixes').value.trim();
+  const stopRaw = document.getElementById('user-pref-stop-words').value.trim();
+  const preferred_quality = document.getElementById('user-pref-quality').value;
+  const default_chime = document.getElementById('user-pref-chime').value;
+
+  const custom_prefixes = prefRaw ? prefRaw.split(/[,，\s]+/).filter(Boolean) : [];
+  const custom_stop_keywords = stopRaw ? stopRaw.split(/[,，\s]+/).filter(Boolean) : [];
+
+  try {
+    const res = await authFetch('/api/user/settings', {
+      method: 'POST',
+      body: JSON.stringify({
+        custom_prefixes,
+        custom_stop_keywords,
+        preferred_quality,
+        default_chime,
+        enable_tts_chime: default_chime !== 'none' ? 1 : 0
+      })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      alert('🎉 个人偏好设置已成功保存！');
+      window.closeUserSettingsModal();
+    } else {
+      alert(json.error || '保存失败');
+    }
+  } catch (e) {
+    alert(e.message);
+  }
+}
 
 async function submitQuickBindMi() {
   const account = document.getElementById('bind-quick-account').value.trim();
