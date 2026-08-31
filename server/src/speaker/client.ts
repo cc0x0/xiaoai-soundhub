@@ -431,6 +431,32 @@ export class XiaoAiClient {
     return client;
   }
 
+  public async getPlayStatus(did?: string): Promise<'playing' | 'paused' | 'stopped' | 'idle' | 'unknown'> {
+    const targetDid = did || this.config.defaultDid || this.config.did || '';
+    if (!targetDid) return 'unknown';
+
+    try {
+      const client = await this.getMiNAClient(targetDid);
+      if (client) {
+        if (typeof client.getStatus === 'function') {
+          const res = await client.getStatus();
+          if (res?.status) return res.status;
+        }
+        if (typeof client.callUbus === 'function') {
+          const ubusRes = await client.callUbus('mediaplayer', 'player_get_play_status');
+          if (ubusRes) {
+            const s = ubusRes.info?.status ?? ubusRes.status;
+            if (s === 1 || s === 'playing') return 'playing';
+            if (s === 2 || s === 'paused') return 'paused';
+            if (s === 0 || s === 'stopped' || s === 'idle') return 'stopped';
+          }
+        }
+      }
+    } catch {}
+
+    return 'unknown';
+  }
+
   public async getLatestAsk(did?: string): Promise<any> {
     let targetDid = did;
     if (!targetDid) {

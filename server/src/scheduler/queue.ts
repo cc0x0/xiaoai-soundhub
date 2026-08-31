@@ -131,10 +131,21 @@ export class PlayScheduler {
     console.log(`[PlayScheduler] 下发直链至音箱 [${did}]: ${proxyStreamUrl}`);
     const ok = await this.client.playAudio(proxyStreamUrl, { did });
 
-    // 5. 设置自动切歌定时器
+    // 5. 设置自动切歌定时器 (带硬件真实状态感知守护锁)
     if (ok && duration > 5) {
       const timeoutMs = (duration + 2) * 1000;
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
+        try {
+          // 守护锁：在切歌前主动探测小爱硬件当前真实状态
+          const hwStatus = await this.client.getPlayStatus(did);
+          if (hwStatus === 'paused' || hwStatus === 'stopped' || hwStatus === 'idle') {
+            console.log(`[PlayScheduler] 🛑 探测到音箱 [${did}] 当前处于 [${hwStatus}] 状态（用户已手动暂停/停止），安全取消自动切歌。`);
+            this.clearTimer(did);
+            this.currentPlayState.delete(did);
+            return;
+          }
+        } catch {}
+
         console.log(`[PlayScheduler] 歌曲播放结束，自动切下一首 [${did}]`);
         this.next(did).catch(() => {});
       }, timeoutMs);
