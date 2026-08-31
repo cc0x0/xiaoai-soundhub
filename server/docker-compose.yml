@@ -20,6 +20,7 @@ services:
       - ACTIVE_SOURCE=${ACTIVE_SOURCE:-my-custom-source.js}
       - ENABLE_LISTENER=${ENABLE_LISTENER:-true}
     volumes:
+      - ./public:/app/public
       - ./sources:/app/sources
       - ./data:/app/data
       - ./data:/root/.xiaoai-soundhub
