@@ -5,7 +5,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { AppDatabase } from './db/index.js';
 import { SecurityCrypto } from './security/crypto.js';
@@ -214,7 +213,7 @@ async function bootstrap() {
   // 播放控制接口
   app.post('/api/control', async (req: Request, res: Response) => {
     try {
-      const { action, did, music, playlist, index, volume, text, speed } = req.body;
+      const { action, did, music, playlist, index, volume, text } = req.body;
       const targetDid = did || process.env.XIAOI_DEFAULT_DID || '';
 
       switch (action) {
