@@ -129,7 +129,12 @@ export function createAdminRouter(
       }
     }
 
-    res.json({ ok: true, msg: '系统全局参数已热更新并即时生效！' });
+    const currentActiveSource = sourceEngine ? sourceEngine.getActiveSource() : newActiveSource;
+    res.json({
+      ok: true,
+      msg: `系统参数已热更新！当前全局生效音源: ${currentActiveSource}`,
+      data: { activeSource: currentActiveSource }
+    });
   });
 
   return router;

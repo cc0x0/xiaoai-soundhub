@@ -57,9 +57,10 @@ async function bootstrap() {
     }
   }
 
-  // 3. 初始化音乐引擎与播放调度器
+  // 3. 初始化音乐引擎与播放调度器 (从数据库持久化配置中读取当前生效音源插件)
   const sourcesDir = path.resolve(__dirname, '..', 'sources');
-  const sourceEngine = new SourceEngine(sourcesDir, process.env.ACTIVE_SOURCE || 'my-custom-source.js');
+  const initialSource = db.getSystemSetting('active_source', process.env.ACTIVE_SOURCE || 'my-custom-source.js');
+  const sourceEngine = new SourceEngine(sourcesDir, initialSource);
   await sourceEngine.loadSource();
 
   // 兜底虚拟 client 供全局单例调度使用
