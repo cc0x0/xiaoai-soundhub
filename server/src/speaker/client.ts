@@ -188,6 +188,10 @@ export class XiaoAiClient {
         if (d.startsWith('blt.') || d.includes('blt') || m.includes('blt')) {
           return false;
         }
+        // 排除万能遥控版及红外遥控类设备
+        if (m.includes('remote') || m.includes('ir') || n.includes('遥控') || n.includes('万能') || did === '376878467') {
+          return false;
+        }
         // 排除常见的非音箱设备类别
         if (m.includes('camera') || m.includes('switch') || m.includes('plug') || m.includes('light') || m.includes('vacuum') || m.includes('sensor') || m.includes('lock') || m.includes('curtain') || m.includes('router') || m.includes('gateway')) {
           return false;

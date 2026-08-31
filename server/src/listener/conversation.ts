@@ -66,14 +66,33 @@ export class ConversationListener {
       }
       if (devices.length === 0) return;
 
-      // 使用主音箱作为网关拉取小米云端最新对话流（单路查询，杜绝全屋多音箱重复并发）
-      const primaryDev = devices[0];
-      const askResult = await this.client.getLatestAsk(primaryDev.did);
+      // 优先将 唯美小爱音箱Pro (725146300) 或配置的主音箱作为第一网关
+      const sortedDevs = [...devices].sort((a, b) => {
+        if (a.did === '725146300' || a.name?.includes('唯美')) return -1;
+        if (b.did === '725146300' || b.name?.includes('唯美')) return 1;
+        return 0;
+      });
+
+      let askResult: any = null;
+      let activeDev: DeviceInfo = sortedDevs[0];
+
+      for (const dev of sortedDevs) {
+        try {
+          const res = await this.client.getLatestAsk(dev.did);
+          const recs = Array.isArray(res) ? res : res?.records || res?.data?.records || [];
+          if (recs && recs.length > 0) {
+            askResult = res;
+            activeDev = dev;
+            break;
+          }
+        } catch {}
+      }
+
       if (!askResult) return;
 
       const records = Array.isArray(askResult)
         ? askResult
-        : (askResult?.records || askResult?.data?.records || []);
+        : askResult?.records || askResult?.data?.records || [];
       if (records.length === 0) return;
 
       const latestRecord = records[0];
@@ -100,7 +119,7 @@ export class ConversationListener {
         this.handledKeys = new Set(keysArr.slice(keysArr.length - 100));
       }
 
-      // 智能识别当前接收指令的目标音箱
+      // 智能匹配目标音箱，默认指向实际捕获到对话的 Pro 音箱
       let targetSpeaker = devices.find(
         (d) =>
           (d.deviceId && d.deviceId === latestRecord.deviceId) ||
@@ -109,7 +128,7 @@ export class ConversationListener {
       );
 
       if (!targetSpeaker) {
-        targetSpeaker = devices[0];
+        targetSpeaker = activeDev;
       }
 
       console.log(`[ConversationListener] 🎯 捕获到音箱 [${targetSpeaker.name || targetSpeaker.did}] (${targetSpeaker.did}) 语音指令: "${query}"`);
