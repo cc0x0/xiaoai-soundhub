@@ -45,12 +45,12 @@ async function bootstrap() {
   // 1. 初始化 SQLite 多租户数据库
   const db = new AppDatabase();
 
-  // 2. 自动迁移兼容：若 .env 中存有旧版个人账号，自动同步至 admin 账号
+  // 2. 自动迁移兼容：若 .env 中存有旧版个人账号，且全站没有任何租户绑定过此账号，才初始化 admin 占位
   const legacyUserId = process.env.XIAOI_USER_ID || process.env.MI_USER_ID;
   const legacyPassToken = process.env.XIAOI_PASS_TOKEN || process.env.MI_PASS_TOKEN;
   if (legacyUserId && legacyPassToken && legacyUserId !== '你的小米ID') {
-    const adminAcc = db.getMiAccount('admin_root_001');
-    if (!adminAcc) {
+    const existingBinding = db.findMiAccountByXiaomiId(legacyUserId);
+    if (!existingBinding) {
       console.log('[Database] 🔄 自动迁移 .env 中的小米账号至超级管理员租户...');
       const enc = SecurityCrypto.encrypt(legacyPassToken, securitySalt);
       db.saveMiAccount('admin_root_001', legacyUserId, enc, '管理员音箱');

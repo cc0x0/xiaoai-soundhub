@@ -80,7 +80,7 @@ export function createUserRouter(
         },
       });
     } catch (err: any) {
-      res.status(500).json({ ok: false, error: '一键绑定失败: ' + err.message });
+      res.status(400).json({ ok: false, error: err.message || '一键绑定失败' });
     }
   });
 
@@ -117,7 +117,7 @@ export function createUserRouter(
         data: { count },
       });
     } catch (err: any) {
-      res.status(500).json({ ok: false, error: '绑定失败: ' + err.message });
+      res.status(400).json({ ok: false, error: err.message || '绑定失败' });
     }
   });
 

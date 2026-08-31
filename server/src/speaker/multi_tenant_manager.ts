@@ -64,7 +64,13 @@ export class MultiTenantSpeakerManager {
     }
     const allAccs = this.db.getAllMiAccounts();
     console.log(`[MultiTenant] 正在启动 ${allAccs.length} 个租户的小爱语音监听池...`);
+    const startedXiaomiIds = new Set<string>();
     for (const acc of allAccs) {
+      if (startedXiaomiIds.has(acc.xiaomi_user_id)) {
+        console.warn(`[MultiTenant] ⚠️ 拦截重复小米账号监听 (ID: ${acc.xiaomi_user_id}, 租户: ${acc.user_id})`);
+        continue;
+      }
+      startedXiaomiIds.add(acc.xiaomi_user_id);
       this.startListener(acc.user_id).catch(() => {});
     }
   }

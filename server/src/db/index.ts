@@ -192,6 +192,39 @@ export class AppDatabase {
     for (const [k, v, cat, desc] of defaultSettings) {
       insertSetting.run(k, v, cat, desc, now);
     }
+
+    // 启动时自动清洗历史遗留的重复绑定（尤其是 admin_root_001 与真实租户的冲突）
+    this.cleanupDuplicateMiAccounts();
+  }
+
+  /**
+   * 启动时自动去重：若 admin_root_001 与普通租户重复，删除 admin 的绑定；若普通租户之间重复，保留最新绑定者
+   */
+  public cleanupDuplicateMiAccounts(): void {
+    const rows = this.db.prepare('SELECT * FROM mi_accounts ORDER BY updated_at DESC').all() as unknown as MiAccountRow[];
+    const seen = new Map<string, MiAccountRow>();
+    const toDeleteUserIds = new Set<string>();
+
+    for (const r of rows) {
+      if (seen.has(r.xiaomi_user_id)) {
+        const existing = seen.get(r.xiaomi_user_id)!;
+        if (existing.user_id === 'admin_root_001' && r.user_id !== 'admin_root_001') {
+          toDeleteUserIds.add('admin_root_001');
+          seen.set(r.xiaomi_user_id, r);
+        } else if (r.user_id === 'admin_root_001') {
+          toDeleteUserIds.add('admin_root_001');
+        } else {
+          toDeleteUserIds.add(r.user_id);
+        }
+      } else {
+        seen.set(r.xiaomi_user_id, r);
+      }
+    }
+
+    for (const uid of toDeleteUserIds) {
+      console.log(`[Database] 🧹 自动清理重复绑定的小米账号数据 (租户: ${uid})`);
+      this.deleteMiAccount(uid);
+    }
   }
 
   // ====== 用户相关 CRUD ======
@@ -229,6 +262,10 @@ export class AppDatabase {
     return this.db.prepare('SELECT * FROM mi_accounts WHERE user_id = ?').get(userId) as unknown as MiAccountRow | undefined;
   }
 
+  public findMiAccountByXiaomiId(xiaomiUserId: string): MiAccountRow | undefined {
+    return this.db.prepare('SELECT * FROM mi_accounts WHERE xiaomi_user_id = ?').get(xiaomiUserId) as unknown as MiAccountRow | undefined;
+  }
+
   public getAllMiAccounts(): MiAccountRow[] {
     return this.db.prepare('SELECT * FROM mi_accounts').all() as unknown as MiAccountRow[];
   }
@@ -237,15 +274,22 @@ export class AppDatabase {
     const now = Date.now();
     const id = `mi_${userId}`;
 
-    // 1. 查找是否有其他旧租户曾经绑定过此 xiaomi_user_id (排他性接管与旧租户解绑)
-    const oldAccounts = this.db.prepare(`
+    // 1. 查找是否有其他租户绑定过此 xiaomi_user_id
+    const existing = this.db.prepare(`
       SELECT user_id FROM mi_accounts WHERE xiaomi_user_id = ? AND user_id != ?
     `).all(xiaomiUserId, userId) as unknown as { user_id: string }[];
 
-    const evictedUserIds = oldAccounts.map((a) => a.user_id);
-    for (const oldUid of evictedUserIds) {
-      console.log(`[Database] 🔄 小米账号 [${xiaomiUserId}] 已被新租户 [${userId}] 独占接管，自动注销旧租户 [${oldUid}] 的绑定数据`);
-      this.deleteMiAccount(oldUid);
+    const evictedUserIds: string[] = [];
+    for (const item of existing) {
+      if (item.user_id === 'admin_root_001') {
+        // 如果是系统初始管理员绑定的旧占位，自动为真实租户让路解绑
+        console.log(`[Database] 🔄 小米账号 [${xiaomiUserId}] 已由真实租户 [${userId}] 绑定，自动清理管理员占位数据`);
+        this.deleteMiAccount('admin_root_001');
+        evictedUserIds.push('admin_root_001');
+      } else {
+        // 如果是已被其他普通租户绑定，直接抛出异常拒绝重复绑定
+        throw new Error(`该小米账号已被其他租户绑定，禁止重复绑定！如需使用请先在原账号解绑。`);
+      }
     }
 
     this.db.prepare(`
