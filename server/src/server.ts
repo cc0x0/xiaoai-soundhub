@@ -71,16 +71,17 @@ async function bootstrap() {
   });
 
   const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl, db);
+  const speakerManager = new MultiTenantSpeakerManager(db, securitySalt, scheduler, sourceEngine);
 
   // 自动为超级管理员租户初始化并拉取音箱设备
   const adminAcc = db.getMiAccount('admin_root_001');
   if (adminAcc) {
-    speakerManager.getClient('admin_root_001').then(async (client) => {
+    speakerManager.getClient('admin_root_001').then(async (client: any) => {
       if (client) {
         const devs = await client.listDevices();
         console.log(`[Database] 🚀 自动为超级管理员同步了 ${devs.length} 台小爱音箱`);
       }
-    }).catch((err) => {
+    }).catch((err: any) => {
       console.warn('[Database] 自动拉取管理员音箱失败:', err.message);
     });
   }

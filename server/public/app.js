@@ -119,11 +119,19 @@ function bindEvents() {
 }
 
 window.switchBindMode = function(mode) {
-  const isQuick = mode === 'quick';
-  document.getElementById('tab-bind-quick').className = 'auth-tab ' + (isQuick ? 'active' : '');
-  document.getElementById('tab-bind-advanced').className = 'auth-tab ' + (!isQuick ? 'active' : '');
-  document.getElementById('panel-bind-quick').style.display = isQuick ? 'block' : 'none';
-  document.getElementById('panel-bind-advanced').style.display = !isQuick ? 'block' : 'none';
+  const isAdv = mode === 'advanced';
+  const btnAdv = document.getElementById('tab-bind-advanced');
+  const btnQuick = document.getElementById('tab-bind-quick');
+  
+  if (btnAdv && btnQuick) {
+    btnAdv.style.background = isAdv ? '#3b82f6' : 'transparent';
+    btnAdv.style.color = isAdv ? '#fff' : 'var(--text-muted)';
+    btnQuick.style.background = !isAdv ? '#3b82f6' : 'transparent';
+    btnQuick.style.color = !isAdv ? '#fff' : 'var(--text-muted)';
+  }
+
+  document.getElementById('panel-bind-advanced').style.display = isAdv ? 'block' : 'none';
+  document.getElementById('panel-bind-quick').style.display = !isAdv ? 'block' : 'none';
 };
 
 window.closeBindModal = function() {
