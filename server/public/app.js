@@ -198,8 +198,11 @@ async function fetchStatus() {
     const res = await authFetch('/api/status');
     const json = await res.json();
     if (json.ok) {
-      document.getElementById('status-text').textContent = '服务在线';
-      document.getElementById('active-source-badge').textContent = `音源: ${json.data.activeSource}`;
+      const statusEl = document.getElementById('status-text');
+      if (statusEl) statusEl.textContent = '服务在线';
+      
+      const badgeEl = document.getElementById('active-source-badge');
+      if (badgeEl) badgeEl.textContent = `音源: ${json.data.activeSource || '在线'}`;
       
       activeQueues = json.data.activeQueues || {};
       const activeDidList = Object.keys(activeQueues);
@@ -212,10 +215,13 @@ async function fetchStatus() {
       const singlePlayerBar = document.getElementById('player-bar');
 
       if (activeDidList.length === 0) {
-        document.getElementById('player-title').innerHTML = '暂无播放歌曲';
-        document.getElementById('player-artist').textContent = '小爱音箱待命';
+        const titleEl = document.getElementById('player-title');
+        const artistEl = document.getElementById('player-artist');
+        if (titleEl) titleEl.innerHTML = '暂无播放歌曲';
+        if (artistEl) artistEl.textContent = '小爱音箱待命';
         isPlaying = false;
-        document.getElementById('btn-toggle-play').textContent = '▶️';
+        const btnPlay = document.getElementById('btn-toggle-play');
+        if (btnPlay) btnPlay.textContent = '▶️';
         if (multiContainer) multiContainer.style.display = 'none';
         if (singlePlayerBar) singlePlayerBar.style.display = 'flex';
       } else if (activeDidList.length === 1) {
@@ -224,13 +230,18 @@ async function fetchStatus() {
         const dev = devices.find((d) => d.did === did);
         const devName = dev?.name || dev?.alias || did;
 
-        document.getElementById('player-title').innerHTML = `
-          <span class="speaker-badge">🔊 ${escapeHtml(devName)}</span>
-          <span class="song-title-text">${escapeHtml(state.music.name)}</span>
-        `;
-        document.getElementById('player-artist').textContent = state.music.singer || '';
+        const titleEl = document.getElementById('player-title');
+        const artistEl = document.getElementById('player-artist');
+        if (titleEl) {
+          titleEl.innerHTML = `
+            <span class="speaker-badge">🔊 ${escapeHtml(devName)}</span>
+            <span class="song-title-text">${escapeHtml(state.music.name)}</span>
+          `;
+        }
+        if (artistEl) artistEl.textContent = state.music.singer || '';
         isPlaying = true;
-        document.getElementById('btn-toggle-play').textContent = '⏸️';
+        const btnPlay = document.getElementById('btn-toggle-play');
+        if (btnPlay) btnPlay.textContent = '⏸️';
         if (multiContainer) multiContainer.style.display = 'none';
         if (singlePlayerBar) singlePlayerBar.style.display = 'flex';
       } else {
@@ -263,9 +274,16 @@ async function fetchStatus() {
       }
     }
   } catch {
-    document.getElementById('status-text').textContent = '连接中断';
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = '连接中断';
   }
 }
+
+window.handleUserLogout = function() {
+  localStorage.removeItem('soundhub_token');
+  localStorage.removeItem('soundhub_user');
+  window.location.href = '/login';
+};
 
 function escapeHtml(str) {
   if (!str) return '';

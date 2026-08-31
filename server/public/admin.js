@@ -1,4 +1,4 @@
-﻿const token = localStorage.getItem('soundhub_token');
+const token = localStorage.getItem('soundhub_token');
 if (!token) {
   window.location.href = '/login';
 }
@@ -46,23 +46,23 @@ async function loadUsers() {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">暂无租户</td></tr>';
         return;
       }
-      tbody.innerHTML = json.data.map(u => 
+      tbody.innerHTML = json.data.map(u => `
         <tr>
           <td>
-            <strong>\</strong>
-            \
-            <div style=\"font-size: 11px; color: var(--text-muted); font-family: monospace;\">\</div>
+            <strong>${escapeHtml(u.username)}</strong>
+            ${u.role === 'admin' ? '<span class="badge" style="background:#ff6a00;color:#fff;font-size:10px;padding:2px 4px;border-radius:3px;margin-left:4px;">ADMIN</span>' : ''}
+            <div style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${u.id}</div>
           </td>
-          <td><span class=\"plan-badge plan-\\">\</span></td>
-          <td>\ 台</td>
-          <td>\</td>
-          <td>\</td>
-          <td>\</td>
+          <td><span class="plan-badge plan-${u.plan}">${u.plan}</span></td>
+          <td>${u.max_devices} 台</td>
+          <td>${u.has_mi_account ? '✅ 已绑定 (' + (u.speaker_count || 0) + '台音箱)' : '<span style="color:var(--text-muted);">未绑定</span>'}</td>
+          <td>${u.expires_at ? new Date(u.expires_at).toLocaleDateString() : '永久有效'}</td>
+          <td>${new Date(u.created_at).toLocaleDateString()}</td>
           <td>
-            <button class=\"btn btn-secondary\" style=\"padding: 4px 8px; font-size: 12px;\" onclick=\"openPlanModal('\', '\', \)\">调整套餐/授权</button>
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;" onclick="openPlanModal('${u.id}', '${u.plan}', ${u.max_devices})">调整套餐/授权</button>
           </td>
         </tr>
-      ).join('');
+      `).join('');
     }
   } catch (e) {
     console.error(e);
@@ -117,15 +117,15 @@ async function loadSystemSettings() {
     if (json.ok) {
       cachedSettings = json.data;
       const container = document.getElementById('settings-form-container');
-      container.innerHTML = json.data.map(s => 
-        <div style=\"margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color);\">
-          <div style=\"display: flex; justify-content: space-between; margin-bottom: 6px;\">
-            <strong style=\"font-size: 14px;\">\</strong>
-            <span style=\"font-family: monospace; font-size: 12px; color: var(--text-muted);\">\</span>
+      container.innerHTML = json.data.map(s => `
+        <div style="margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border-color);">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+            <strong style="font-size: 14px;">${escapeHtml(s.description || s.key)}</strong>
+            <span style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${s.key} (${s.category})</span>
           </div>
-          <input type=\"text\" id=\"setting-input-\\" value=\"\\" style=\"width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 14px;\">
+          <input type="text" id="setting-input-${s.key}" value="${escapeHtml(s.value)}" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 14px;">
         </div>
-      ).join('');
+      `).join('');
     }
   } catch (e) {
     console.error(e);
@@ -157,6 +157,15 @@ async function saveSystemSettings() {
   } catch (e) {
     alert(e.message);
   }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 loadAdminOverview();
