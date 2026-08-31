@@ -142,27 +142,63 @@
   <div class="modal-overlay" id="bind-mi-modal" style="display: none;">
     <div class="auth-card" style="max-width: 460px;">
       <div class="auth-icon">🔑</div>
-      <h3>绑定小米账号凭证</h3>
-      <p class="auth-desc" style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
-        🔒 <b>银行级 AES-256-GCM 强加密保护</b>：您的 passToken 仅用于服务端与小米官方网关点对点通信，支持随时一键解绑与物理销毁。
-      </p>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">小米数字 ID (UserId)</label>
-        <input type="text" id="bind-mi-userid" placeholder="例如: 725146300" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+      <h3>绑定小米账号与音箱</h3>
+      
+      <!-- 双模式切换 Tab -->
+      <div class="auth-tabs" style="margin: 14px 0 18px 0;">
+        <div class="auth-tab active" id="tab-bind-quick" onclick="switchBindMode('quick')">⚡ 账号密码一键绑定 (推荐)</div>
+        <div class="auth-tab" id="tab-bind-advanced" onclick="switchBindMode('advanced')">🛠️ 高级凭证 (passToken)</div>
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">小米 passToken</label>
-        <input type="password" id="bind-mi-token" placeholder="输入抓取到的 passToken..." style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+
+      <!-- 模式一：账号密码一键绑定 (极速免抓包) -->
+      <div id="panel-bind-quick">
+        <p class="auth-desc" style="font-size: 12px; color: var(--text-muted); line-height: 1.6; margin-bottom: 14px;">
+          💡 <b>免抓包一键直连</b>：输入您的小米手机号/邮箱与密码，后端将直连小米官方登录接口秒级换取凭证并同步音箱。
+        </p>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">小米账号 (手机号 / 邮箱 / 小米ID)</label>
+          <input type="text" id="bind-quick-account" placeholder="例如: 13800138000 或 邮箱" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">小米登录密码</label>
+          <input type="password" id="bind-quick-password" placeholder="输入您的小米账号密码" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">家庭昵称 (选填)</label>
+          <input type="text" id="bind-quick-nickname" placeholder="例如: 我的家" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+        </div>
+        <div style="display: flex; justify-content: space-between; gap: 10px;">
+          <button class="btn btn-secondary" id="btn-unbind-mi-quick" onclick="handleUnbindMi()" style="color: #ff4d4f;">🗑️ 解绑账号</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" onclick="closeBindModal()">取消</button>
+            <button class="btn btn-primary" id="btn-submit-quick-bind">⚡ 一键登录并同步音箱</button>
+          </div>
+        </div>
       </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">米家昵称 (选填)</label>
-        <input type="text" id="bind-mi-nickname" placeholder="例如: 我的家" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
-      </div>
-      <div style="display: flex; justify-content: space-between; gap: 10px;">
-        <button class="btn btn-secondary" id="btn-unbind-mi" style="color: #ff4d4f;">🗑️ 解绑账号</button>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-secondary" onclick="closeBindModal()">取消</button>
-          <button class="btn btn-primary" id="btn-submit-bind">立即同步绑定</button>
+
+      <!-- 模式二：高级 passToken 绑定 -->
+      <div id="panel-bind-advanced" style="display: none;">
+        <p class="auth-desc" style="font-size: 12px; color: var(--text-muted); line-height: 1.6; margin-bottom: 14px;">
+          🔒 <b>银行级 AES-256 加密保护</b>：适合开启了二次风控验证的用户，直接填入手动抓取的 passToken。
+        </p>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">小米数字 ID (UserId)</label>
+          <input type="text" id="bind-mi-userid" placeholder="例如: 21944095" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">小米 passToken</label>
+          <input type="password" id="bind-mi-token" placeholder="输入抓取到的 passToken..." style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">家庭昵称 (选填)</label>
+          <input type="text" id="bind-mi-nickname" placeholder="例如: 我的家" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+        </div>
+        <div style="display: flex; justify-content: space-between; gap: 10px;">
+          <button class="btn btn-secondary" id="btn-unbind-mi-adv" onclick="handleUnbindMi()" style="color: #ff4d4f;">🗑️ 解绑账号</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" onclick="closeBindModal()">取消</button>
+            <button class="btn btn-primary" id="btn-submit-bind">立即同步绑定</button>
+          </div>
         </div>
       </div>
     </div>

@@ -73,6 +73,19 @@ async function bootstrap() {
   const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl);
   const speakerManager = new MultiTenantSpeakerManager(db, securitySalt, scheduler, sourceEngine);
 
+  // 自动为超级管理员租户初始化并拉取音箱设备
+  const adminAcc = db.getMiAccount('admin_root_001');
+  if (adminAcc) {
+    speakerManager.getClient('admin_root_001').then(async (client) => {
+      if (client) {
+        const devs = await client.listDevices();
+        console.log(`[Database] 🚀 自动为超级管理员同步了 ${devs.length} 台小爱音箱`);
+      }
+    }).catch((err) => {
+      console.warn('[Database] 自动拉取管理员音箱失败:', err.message);
+    });
+  }
+
   // 4. 启动所有租户的语音监听池
   if (process.env.ENABLE_LISTENER !== 'false') {
     speakerManager.startAllActiveListeners().catch(() => {});

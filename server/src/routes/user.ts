@@ -5,6 +5,7 @@ import { SecurityCrypto } from '../security/crypto.js';
 import { AuthRequest } from './auth.js';
 import { SourceEngine } from '../source_engine/sandbox.js';
 import { PlayScheduler } from '../scheduler/queue.js';
+import { XiaomiAuthService } from '../speaker/xiaomi_auth.js';
 
 export function createUserRouter(
   db: AppDatabase,
@@ -29,14 +30,58 @@ export function createUserRouter(
       ok: true,
       data: {
         isBound: true,
-        xiaomiUserIdMasked: SecurityCrypto.maskText(miAcc.xiaomi_user_id),
-        nickname: miAcc.nickname || '米家账号',
+        xiaomiUserId: SecurityCrypto.maskText(miAcc.xiaomi_user_id),
+        nickname: miAcc.nickname || '我的小米账号',
         updatedAt: miAcc.updated_at,
       },
     });
   });
 
-  // 2. 绑定或更新小米账号 (AES-256 加密存入数据库)
+  // 2.1 账号密码一键极速绑定（免抓包，自动请求小米官方登录接口换取 userId + passToken）
+  router.post('/account/login-bind', async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const { account, password, nickname } = req.body;
+
+      if (!account || !password) {
+        res.status(400).json({ ok: false, error: '小米账号（手机号/邮箱）和密码为必填项' });
+        return;
+      }
+
+      const loginRes = await XiaomiAuthService.loginWithPassword(account, password);
+      if (!loginRes.ok || !loginRes.userId || !loginRes.passToken) {
+        res.status(400).json({ ok: false, error: loginRes.error || '小米账号登录失败，请检查账号密码' });
+        return;
+      }
+
+      const encryptedToken = SecurityCrypto.encrypt(loginRes.passToken.trim(), securitySalt);
+      db.saveMiAccount(userId, loginRes.userId.trim(), encryptedToken, nickname || loginRes.nickname);
+
+      speakerManager.invalidateClient(userId);
+
+      const client = await speakerManager.getClient(userId);
+      let count = 0;
+      if (client) {
+        const devs = await client.listDevices();
+        count = devs.length;
+        speakerManager.startListener(userId).catch(() => {});
+      }
+
+      res.json({
+        ok: true,
+        msg: `🎉 小米账号登录绑定成功！已为您同步发现 ${count} 台小爱音箱`,
+        data: {
+          xiaomiUserId: loginRes.userId,
+          nickname: loginRes.nickname,
+          count,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: '一键绑定失败: ' + err.message });
+    }
+  });
+
+  // 2.2 高级模式：手动填入 passToken 绑定 (AES-256 加密存入数据库)
   router.post('/account', async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user!.id;

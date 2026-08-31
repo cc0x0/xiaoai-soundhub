@@ -77,6 +77,7 @@ function bindEvents() {
     const m = document.getElementById('bind-mi-modal');
     if (m) m.style.display = 'flex';
   });
+  document.getElementById('btn-submit-quick-bind')?.addEventListener('click', submitQuickBindMi);
   document.getElementById('btn-submit-bind')?.addEventListener('click', submitBindMi);
   document.getElementById('btn-unbind-mi')?.addEventListener('click', handleUnbindMi);
 
@@ -109,6 +110,14 @@ function bindEvents() {
   document.getElementById('btn-stop')?.addEventListener('click', () => controlPlay('stop'));
 }
 
+window.switchBindMode = function(mode) {
+  const isQuick = mode === 'quick';
+  document.getElementById('tab-bind-quick').className = 'auth-tab ' + (isQuick ? 'active' : '');
+  document.getElementById('tab-bind-advanced').className = 'auth-tab ' + (!isQuick ? 'active' : '');
+  document.getElementById('panel-bind-quick').style.display = isQuick ? 'block' : 'none';
+  document.getElementById('panel-bind-advanced').style.display = !isQuick ? 'block' : 'none';
+};
+
 window.closeBindModal = function() {
   const m = document.getElementById('bind-mi-modal');
   if (m) m.style.display = 'none';
@@ -118,6 +127,41 @@ window.closeRedeemModal = function() {
   const m = document.getElementById('redeem-modal');
   if (m) m.style.display = 'none';
 };
+
+async function submitQuickBindMi() {
+  const account = document.getElementById('bind-quick-account').value.trim();
+  const password = document.getElementById('bind-quick-password').value;
+  const nickname = document.getElementById('bind-quick-nickname').value.trim();
+
+  if (!account || !password) {
+    alert('请填写小米账号（手机号/邮箱）和密码');
+    return;
+  }
+
+  const btn = document.getElementById('btn-submit-quick-bind');
+  btn.disabled = true;
+  btn.innerText = '正在直连小米官方登录中...';
+
+  try {
+    const res = await authFetch('/api/user/account/login-bind', {
+      method: 'POST',
+      body: JSON.stringify({ account, password, nickname })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      alert(json.msg);
+      window.closeBindModal();
+      fetchDevices();
+    } else {
+      alert(json.error || '登录绑定失败');
+    }
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerText = '⚡ 一键登录并同步音箱';
+  }
+}
 
 async function submitBindMi() {
   const xiaomiUserId = document.getElementById('bind-mi-userid').value.trim();
