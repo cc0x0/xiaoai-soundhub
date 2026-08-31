@@ -1,8 +1,18 @@
-﻿# Agent Behavior Guidelines (AGENTS.md)
+# Agent Behavior Guidelines (AGENTS.md)
 
-## 🚨 核心交互准则：先出方案与建议，确认后再动代码 (Proposal First)
+## 🚨 核心交互准则 1：先出方案与建议，确认后再动代码 (Proposal First)
 
 当用户询问问题、探讨技术方案或要求提供解决思路时：
 1. **优先输出建议与方案**：先用清晰、结构化的语言向用户提供技术思路、方案对比、优缺点分析和具体建议；
 2. **严禁未经确认直接修改文件**：在用户确认或明确要求执行修改前，不要直接去修改现有文件或新增代码；
 3. **保持方案透明与对齐**：等用户看完方案并做出选择或确认后再动手实施修改。
+
+---
+
+## 🛡️ 核心交互准则 2：每次修改后必须执行全量静态语法与类型检查 (Mandatory Code Checks)
+
+在每一次修改代码并准备交付/推送前，必须无条件执行以下质量检查并确保 **0 错误、0 告警**：
+1. **TypeScript 严格类型检查**：在 `server` 目录执行 `npm run typecheck` (`tsc --noEmit`)；
+2. **前端与脚本语法检查**：对所有修改过的 HTML、JS、CSS 执行语法合规校验 (`node --check public/app.js`、`node --check public/admin.js`)；
+3. **一键全量自动化检查**：运行 `npm run check:all` 确保全栈代码完全健康后再向用户汇报与交付！
+
