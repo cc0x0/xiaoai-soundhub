@@ -14,7 +14,8 @@ export class ConversationListener {
   private parser: VoiceParser;
   private isRunning = false;
   private pollIntervalMs: number;
-  private lastTimestamps: Map<string, number> = new Map();
+  private lastGlobalTimestamp = 0;
+  private handledKeys: Set<string> = new Set();
   private commandHandler: VoiceCommandHandler | null = null;
 
   constructor(client: XiaoAiClient, pollIntervalMs = 1200) {
@@ -48,15 +49,7 @@ export class ConversationListener {
       }
 
       try {
-        let devices = this.client.getCachedDevices().filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
-        if (devices.length === 0) {
-          devices = (await this.client.listDevices()).filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
-        }
-
-        // 仅对真正的物理 WiFi 小爱音箱进行并行极速对话轮询
-        await Promise.allSettled(
-          devices.map((dev) => this.checkSpeakerAsk(dev))
-        );
+        await this.checkGlobalAsk();
       } catch (err: any) {
         // 忽略单次网络闪断
       }
@@ -65,9 +58,17 @@ export class ConversationListener {
     }
   }
 
-  private async checkSpeakerAsk(dev: DeviceInfo): Promise<void> {
+  private async checkGlobalAsk(): Promise<void> {
     try {
-      const askResult = await this.client.getLatestAsk(dev.did);
+      let devices = this.client.getCachedDevices().filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
+      if (devices.length === 0) {
+        devices = (await this.client.listDevices()).filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
+      }
+      if (devices.length === 0) return;
+
+      // 使用主音箱作为网关拉取小米云端最新对话流（单路查询，杜绝全屋多音箱重复并发）
+      const primaryDev = devices[0];
+      const askResult = await this.client.getLatestAsk(primaryDev.did);
       if (!askResult) return;
 
       const records = Array.isArray(askResult)
@@ -78,27 +79,48 @@ export class ConversationListener {
       const latestRecord = records[0];
       const timestamp = Number(latestRecord.time || latestRecord.timestamp_ms || Date.now());
       const query = String(latestRecord.query || latestRecord.response?.answer?.[0]?.question || '').trim();
-
-      const lastTime = this.lastTimestamps.get(dev.did) || 0;
+      const reqId = String(latestRecord.requestId || `${timestamp}_${query}`);
 
       // 首次初始化时间戳，避免启动时误触发历史记录
-      if (lastTime === 0) {
-        this.lastTimestamps.set(dev.did, timestamp);
+      if (this.lastGlobalTimestamp === 0) {
+        this.lastGlobalTimestamp = timestamp;
+        this.handledKeys.add(reqId);
         return;
       }
 
-      if (timestamp > lastTime && query) {
-        this.lastTimestamps.set(dev.did, timestamp);
-        console.log(`[ConversationListener] 🎯 捕获到音箱 [${dev.name || dev.did}] (${dev.did}) 语音指令: "${query}"`);
+      // 全局时间戳与唯一 Key 排重：已处理过的请求绝不重复触发
+      if (timestamp <= this.lastGlobalTimestamp || this.handledKeys.has(reqId) || !query) {
+        return;
+      }
 
-        const parsed = this.parser.parse(query);
-        if (parsed.type !== 'unknown') {
-          // 抢先掐断小爱官方的 VIP 提示
-          await this.client.pause({ did: dev.did }).catch(() => {});
+      this.lastGlobalTimestamp = timestamp;
+      this.handledKeys.add(reqId);
+      if (this.handledKeys.size > 200) {
+        const keysArr = Array.from(this.handledKeys);
+        this.handledKeys = new Set(keysArr.slice(keysArr.length - 100));
+      }
 
-          if (this.commandHandler) {
-            await this.commandHandler(dev.did, parsed);
-          }
+      // 智能识别当前接收指令的目标音箱
+      let targetSpeaker = devices.find(
+        (d) =>
+          (d.deviceId && d.deviceId === latestRecord.deviceId) ||
+          (d.did && d.did === latestRecord.miotDID) ||
+          (d.did && d.did === latestRecord.deviceId)
+      );
+
+      if (!targetSpeaker) {
+        targetSpeaker = devices[0];
+      }
+
+      console.log(`[ConversationListener] 🎯 捕获到音箱 [${targetSpeaker.name || targetSpeaker.did}] (${targetSpeaker.did}) 语音指令: "${query}"`);
+
+      const parsed = this.parser.parse(query);
+      if (parsed.type !== 'unknown') {
+        // 抢先掐断小爱官方自带播放或 VIP 提示音
+        await this.client.pause({ did: targetSpeaker.did }).catch(() => {});
+
+        if (this.commandHandler) {
+          await this.commandHandler(targetSpeaker.did, parsed);
         }
       }
     } catch {}

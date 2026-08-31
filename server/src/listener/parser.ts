@@ -15,8 +15,14 @@ export class VoiceParser {
     '点歌', '搜歌', '放歌', '听歌', '听一首', '来一曲', '唱一曲',
     '播放歌曲', '播放', '我想听', '放一首', '唱一首', '放首', '来首', '来一首',
   ];
-  private stopKeywords = ['停止播放', '停止', '别唱了', '闭嘴', '关机', '不要放了', '别放了'];
-  private pauseKeywords = ['暂停播放', '暂停'];
+  private stopKeywords = [
+    '停止播放', '停止', '别唱了', '闭嘴', '关机', '不要放了', '别放了',
+    '退下', '退下吧', '别播了', '不听了', '别放歌了', '关闭播放', '关掉音乐',
+    '停', '别吵了', '休息吧', '别吵', '不播了', '不要播了', '关掉', '退出',
+  ];
+  private pauseKeywords = [
+    '暂停播放', '暂停', '先停一下', '稍等一下', '暂停一下', '停一下', '等一下', '先别放了',
+  ];
   private resumeKeywords = ['继续播放', '恢复播放', '继续'];
   private nextKeywords = ['下一首', '切歌', '换一首', '下一曲', '换歌', '切下一首'];
   private prevKeywords = ['上一首', '上一曲', '切上一首'];
@@ -28,12 +34,12 @@ export class VoiceParser {
     }
 
     // 1. 停止
-    if (this.stopKeywords.some((k) => raw === k || raw.startsWith(k))) {
+    if (this.stopKeywords.some((k) => raw === k || raw.startsWith(k) || raw.endsWith(k))) {
       return { type: 'stop', rawText: raw };
     }
 
     // 2. 暂停
-    if (this.pauseKeywords.some((k) => raw === k)) {
+    if (this.pauseKeywords.some((k) => raw === k || raw.startsWith(k) || raw.endsWith(k))) {
       return { type: 'pause', rawText: raw };
     }
 

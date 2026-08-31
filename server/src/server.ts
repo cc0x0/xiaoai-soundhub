@@ -120,13 +120,9 @@ async function bootstrap() {
     } else if (cmd.type === 'stop') {
       await scheduler.stop(did);
     } else if (cmd.type === 'pause') {
-      await speakerClient.pause({ did });
+      await scheduler.pause(did);
     } else if (cmd.type === 'resume') {
-      // 尝试继续播放
-      const current = scheduler.getCurrentState(did);
-      if (current) {
-        await speakerClient.playAudio(current.streamUrl, { did });
-      }
+      await scheduler.resume(did);
     } else if (cmd.type === 'next') {
       await scheduler.next(did);
     } else if (cmd.type === 'prev') {
@@ -341,7 +337,7 @@ async function bootstrap() {
       for (const targetDid of targetDids) {
         switch (action) {
           case 'pause':
-            await speakerClient.pause({ did: targetDid });
+            await scheduler.pause(targetDid);
             break;
           case 'resume':
             await scheduler.resume(targetDid);

@@ -57,6 +57,15 @@ export class PlayScheduler {
   public async stop(did: string): Promise<boolean> {
     this.clearTimer(did);
     this.currentPlayState.delete(did);
+    this.playlist.delete(did);
+    this.currentIndex.delete(did);
+    console.log(`[PlayScheduler] 音箱 [${did}] 已彻底停止播放并清空队列与定时器`);
+    return await this.client.stop({ did });
+  }
+
+  public async pause(did: string): Promise<boolean> {
+    this.clearTimer(did);
+    console.log(`[PlayScheduler] 音箱 [${did}] 已暂停播放并取消自动切歌定时器`);
     return await this.client.pause({ did });
   }
 
