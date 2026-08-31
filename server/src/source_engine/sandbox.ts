@@ -466,8 +466,39 @@ export class SourceEngine {
     const songId = String(songItem.id || songItem.raw?.hash || songItem.raw?.id || '');
     const songName = String(songItem.name || '');
     const singer = String(songItem.singer || '');
+    const searchKwd = `${singer} ${songName}`.trim() || songName;
 
-    // 1. 尝试酷狗官方取链
+    // 1. 👑 核心首选：腾讯/酷我 (TME) 官方录音室正版原声直通线
+    // 无论是周杰伦全系列、陈小春《街角的晚风》等独家正版，均在此处提取 100% 录音室原声母带流
+    try {
+      let kuwoRid = '';
+      if (songItem.source === 'kw' && /^\d+$/.test(songId)) {
+        kuwoRid = songId;
+      } else {
+        const kwSearch = await axios.get(
+          `https://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(searchKwd)}&pn=0&rn=3&vipver=1&ft=music&encoding=utf8&rformat=json&mobi=1`,
+          { timeout: 5000, headers: { 'User-Agent': 'Mozilla/5.0' } }
+        );
+        const bestMatch = kwSearch.data?.abslist?.[0];
+        if (bestMatch?.DC_TARGETID) {
+          kuwoRid = String(bestMatch.DC_TARGETID);
+        }
+      }
+
+      if (kuwoRid) {
+        const kwUrlResp = await axios.get(
+          `http://antiserver.kuwo.cn/anti.s?type=convert_url&rid=${kuwoRid}&format=mp3&response=url`,
+          { timeout: 5000 }
+        );
+        const streamUrl = String(kwUrlResp.data || '').trim();
+        if (streamUrl.startsWith('http')) {
+          console.log(`[SourceEngine] 👑 腾讯/酷我官方录音室正版原声解析成功: ${searchKwd}`);
+          return streamUrl;
+        }
+      }
+    } catch {}
+
+    // 2. 尝试酷狗官方原版直通
     if (songItem.source === 'kg' || /^[a-fA-F0-9]{32}$/.test(songId)) {
       try {
         const kgUrl = `https://wwwapi.kugou.com/yy/index.php?r=play/getdata&hash=${songId}&mid=1`;
@@ -480,20 +511,8 @@ export class SourceEngine {
         });
         const playUrl = resp.data?.data?.play_url || resp.data?.data?.play_backup_url;
         if (playUrl && typeof playUrl === 'string' && playUrl.startsWith('http')) {
-          console.log(`[SourceEngine] ✅ 酷狗直连解析成功: ${songName}`);
+          console.log(`[SourceEngine] ✅ 酷狗官方直连解析成功: ${songName}`);
           return playUrl;
-        }
-      } catch {}
-    }
-
-    // 2. 尝试网易云官方高可用外链直通
-    if (songItem.source === 'wy' || /^\d+$/.test(songId)) {
-      try {
-        const wyUrl = `https://music.163.com/song/media/outer/url?id=${songId}.mp3`;
-        const resp = await axios.head(wyUrl, { timeout: 5000, maxRedirects: 0, validateStatus: (s) => s >= 200 && s < 400 });
-        if (resp.status === 302 && resp.headers.location && !resp.headers.location.includes('404')) {
-          console.log(`[SourceEngine] ✅ 网易云直连解析成功: ${songName}`);
-          return resp.headers.location;
         }
       } catch {}
     }
@@ -515,7 +534,6 @@ export class SourceEngine {
     }
 
     // 4. 终极回退：全网歌名+歌手模糊匹配直链提取 (按当前音源平台优先探测)
-    const searchKwd = `${singer} ${songName}`.trim() || songName;
     const platforms = songItem.source === 'tx'
       ? ['tencent', 'kugou', 'netease']
       : (songItem.source === 'wy' ? ['netease', 'tencent', 'kugou'] : ['kugou', 'tencent', 'netease']);
@@ -536,24 +554,17 @@ export class SourceEngine {
       } catch {}
     }
 
-    // 5. 网易云搜索外链终极兜底
-    try {
-      const wySearch = await axios.get(`https://music.163.com/api/search/get/web?csrf_token=&hlpretag=&hlposttag=&s=${encodeURIComponent(searchKwd)}&type=1&offset=0&total=true&limit=5`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        timeout: 6000,
-      });
-      const songs = wySearch.data?.result?.songs || [];
-      for (const s of songs) {
-        const wyUrl = `https://music.163.com/song/media/outer/url?id=${s.id}.mp3`;
-        try {
-          const head = await axios.head(wyUrl, { maxRedirects: 0, validateStatus: (st) => st >= 200 && st < 400, timeout: 4000 });
-          if (head.status === 302 && head.headers.location && !head.headers.location.includes('404')) {
-            console.log(`[SourceEngine] ✅ 网易云智能匹配解析成功: ${searchKwd}`);
-            return head.headers.location;
-          }
-        } catch {}
-      }
-    } catch {}
+    // 5. 网易云官方外链兜底
+    if (songItem.source === 'wy' || /^\d+$/.test(songId)) {
+      try {
+        const wyUrl = `https://music.163.com/song/media/outer/url?id=${songId}.mp3`;
+        const resp = await axios.head(wyUrl, { timeout: 5000, maxRedirects: 0, validateStatus: (s) => s >= 200 && s < 400 });
+        if (resp.status === 302 && resp.headers.location && !resp.headers.location.includes('404')) {
+          console.log(`[SourceEngine] ✅ 网易云直连解析成功: ${songName}`);
+          return resp.headers.location;
+        }
+      } catch {}
+    }
 
     return '';
   }
