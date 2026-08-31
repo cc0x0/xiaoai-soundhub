@@ -348,6 +348,24 @@ async function submitRedeem() {
   }
 }
 
+window.handleUnbindMi = handleUnbindMi;
+window.submitQuickBindMi = submitQuickBindMi;
+window.submitBindMi = submitBindMi;
+window.submitRedeem = submitRedeem;
+window.saveUserSettings = saveUserSettings;
+window.copySnippet = function(el) {
+  const text = el.innerText || el.textContent;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('提取代码已复制到剪贴板！', 'success');
+    }).catch(() => {
+      showToast('请直接双击全选复制代码', 'info');
+    });
+  } else {
+    showToast('请直接双击全选复制代码', 'info');
+  }
+};
+
 let activeQueues = {};
 
 // 2. 状态查询 (毫秒级感知全屋各音箱播放状态)
