@@ -71,7 +71,6 @@ async function bootstrap() {
   });
 
   const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl, db);
-  const speakerManager = new MultiTenantSpeakerManager(db, securitySalt, scheduler, sourceEngine);
 
   // 自动为超级管理员租户初始化并拉取音箱设备
   const adminAcc = db.getMiAccount('admin_root_001');

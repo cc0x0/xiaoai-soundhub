@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -6,56 +6,70 @@
   <title>XiaoAi SoundHub - 登录 / 注册</title>
   <link rel="stylesheet" href="style.css">
   <style>
+    body {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      min-height: 100vh !important;
+      margin: 0 !important;
+      padding: 20px !important;
+      background-color: var(--bg-color, #0f172a);
+    }
     .auth-container {
-      max-width: 420px;
-      margin: 80px auto;
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
+      width: 100%;
+      max-width: 400px;
+      margin: 0 auto;
+      background: var(--card-bg, #1e293b);
+      border: 1px solid var(--card-border, #334155);
       border-radius: 16px;
-      padding: 32px;
+      padding: 32px 28px;
       backdrop-filter: blur(20px);
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      height: fit-content;
+      align-self: center;
     }
     .auth-tabs {
       display: flex;
       margin-bottom: 24px;
-      border-bottom: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--card-border, #334155);
     }
     .auth-tab {
       flex: 1;
-      padding: 12px;
+      padding: 10px;
       text-align: center;
       cursor: pointer;
       font-weight: 600;
-      color: var(--text-muted);
+      font-size: 14px;
+      color: var(--text-muted, #94a3b8);
       transition: all 0.2s;
     }
     .auth-tab.active {
-      color: var(--primary-color);
-      border-bottom: 2px solid var(--primary-color);
+      color: #ff6a00;
+      border-bottom: 2px solid #ff6a00;
     }
     .auth-input-group {
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
     .auth-input-group label {
       display: block;
       font-size: 13px;
-      color: var(--text-muted);
+      color: var(--text-muted, #94a3b8);
       margin-bottom: 6px;
     }
     .auth-input-group input {
       width: 100%;
       box-sizing: border-box;
-      padding: 12px 14px;
+      padding: 11px 14px;
       background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border-color);
+      border: 1px solid var(--card-border, #334155);
       border-radius: 8px;
       color: #fff;
       font-size: 14px;
       outline: none;
+      transition: border-color 0.2s;
     }
     .auth-input-group input:focus {
-      border-color: var(--primary-color);
+      border-color: #ff6a00;
       box-shadow: 0 0 0 2px rgba(255, 106, 0, 0.2);
     }
     .auth-btn {
@@ -78,7 +92,7 @@
       text-align: center;
       margin-top: 20px;
       font-size: 12px;
-      color: var(--text-muted);
+      color: var(--text-muted, #94a3b8);
     }
   </style>
 </head>
