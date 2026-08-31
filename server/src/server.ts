@@ -358,7 +358,9 @@ async function bootstrap() {
   });
 }
 
-bootstrap().catch((err) => {
+bootstrap().catch((err: unknown) => {
   console.error('[Server] 启动失败:', err);
   process.exit(1);
 });
+
+export default bootstrap;
