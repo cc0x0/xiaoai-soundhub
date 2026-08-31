@@ -33,7 +33,7 @@ process.on('unhandledRejection', (reason: any) => {
   console.warn('[Server] 捕获未处理 Promise Rejection（已安全保护）:', reason);
 });
 
-async function bootstrap() {
+export async function bootstrap() {
   const port = Number(process.env.SERVER_PORT || process.env.PORT || 8080);
   const host = process.env.HOST || '0.0.0.0';
   const publicBaseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${port}`;
@@ -362,5 +362,3 @@ bootstrap().catch((err: unknown) => {
   console.error('[Server] 启动失败:', err);
   process.exit(1);
 });
-
-export default bootstrap;
