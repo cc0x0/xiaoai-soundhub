@@ -152,7 +152,7 @@ export class AppDatabase {
 
   private seedDefaults(): void {
     // 1. 初始化超级管理员 (若无 admin)
-    const adminUser = this.db.prepare("SELECT * FROM users WHERE role = 'admin' LIMIT 1").get();
+    const adminUser = this.db.prepare("SELECT * FROM users WHERE role = 'admin' LIMIT 1").get() as unknown as UserRow | undefined;
     if (!adminUser) {
       const adminPass = process.env.ADMIN_PASSWORD || 'admin123456';
       const hash = SecurityCrypto.hashPassword(adminPass);
@@ -194,11 +194,11 @@ export class AppDatabase {
 
   // ====== 用户相关 CRUD ======
   public findUserByUsername(username: string): UserRow | undefined {
-    return this.db.prepare('SELECT * FROM users WHERE username = ?').get(username) as UserRow | undefined;
+    return this.db.prepare('SELECT * FROM users WHERE username = ?').get(username) as unknown as UserRow | undefined;
   }
 
   public findUserById(id: string): UserRow | undefined {
-    return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+    return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as unknown as UserRow | undefined;
   }
 
   public createUser(user: Omit<UserRow, 'created_at'>): UserRow {
@@ -219,16 +219,16 @@ export class AppDatabase {
   }
 
   public listAllUsers(): UserRow[] {
-    return this.db.prepare('SELECT id, username, role, plan, max_devices, expires_at, status, created_at FROM users ORDER BY created_at DESC').all() as UserRow[];
+    return this.db.prepare('SELECT id, username, role, plan, max_devices, expires_at, status, created_at FROM users ORDER BY created_at DESC').all() as unknown as UserRow[];
   }
 
   // ====== 小米账号绑定 ======
   public getMiAccount(userId: string): MiAccountRow | undefined {
-    return this.db.prepare('SELECT * FROM mi_accounts WHERE user_id = ?').get(userId) as MiAccountRow | undefined;
+    return this.db.prepare('SELECT * FROM mi_accounts WHERE user_id = ?').get(userId) as unknown as MiAccountRow | undefined;
   }
 
   public getAllMiAccounts(): MiAccountRow[] {
-    return this.db.prepare('SELECT * FROM mi_accounts').all() as MiAccountRow[];
+    return this.db.prepare('SELECT * FROM mi_accounts').all() as unknown as MiAccountRow[];
   }
 
   public saveMiAccount(userId: string, xiaomiUserId: string, encryptedToken: string, nickname?: string): void {
@@ -252,7 +252,7 @@ export class AppDatabase {
 
   // ====== 音箱设备表 ======
   public getSpeakers(userId: string): SpeakerRow[] {
-    return this.db.prepare('SELECT * FROM speakers WHERE user_id = ? ORDER BY is_gateway DESC, did ASC').all(userId) as SpeakerRow[];
+    return this.db.prepare('SELECT * FROM speakers WHERE user_id = ? ORDER BY is_gateway DESC, did ASC').all(userId) as unknown as SpeakerRow[];
   }
 
   public syncSpeakers(userId: string, discovered: { did: string; name: string; model?: string; hardware?: string }[]): void {
@@ -288,10 +288,10 @@ export class AppDatabase {
 
   // ====== 用户个性化设置 ======
   public getUserSettings(userId: string): UserSettingsRow {
-    let row = this.db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(userId) as UserSettingsRow | undefined;
+    let row = this.db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(userId) as unknown as UserSettingsRow | undefined;
     if (!row) {
       this.db.prepare('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)').run(userId);
-      row = this.db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(userId) as UserSettingsRow;
+      row = this.db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(userId) as unknown as UserSettingsRow;
     }
     return row;
   }
@@ -308,12 +308,12 @@ export class AppDatabase {
 
   // ====== 系统全局参数 ======
   public getSystemSetting(key: string, defaultVal = ''): string {
-    const row = this.db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    const row = this.db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key) as unknown as { value: string } | undefined;
     return row ? row.value : defaultVal;
   }
 
   public getAllSystemSettings(): SystemSettingRow[] {
-    return this.db.prepare('SELECT * FROM system_settings ORDER BY category ASC, key ASC').all() as SystemSettingRow[];
+    return this.db.prepare('SELECT * FROM system_settings ORDER BY category ASC, key ASC').all() as unknown as SystemSettingRow[];
   }
 
   public updateSystemSetting(key: string, value: string): void {
