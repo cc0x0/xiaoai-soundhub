@@ -2,6 +2,7 @@
 FROM node:20-alpine AS builder
 
 WORKDIR /app
+RUN apk add --no-cache python3 make g++
 
 COPY package*.json tsconfig.json ./
 RUN npm install
@@ -15,9 +16,10 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apk add --no-cache python3 make g++
 
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev && apk del python3 make g++
 
 COPY --from=builder /app/dist ./dist
 COPY public/ ./public

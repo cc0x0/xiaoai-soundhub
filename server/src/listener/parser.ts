@@ -27,6 +27,12 @@ export class VoiceParser {
   private nextKeywords = ['下一首', '切歌', '换一首', '下一曲', '换歌', '切下一首'];
   private prevKeywords = ['上一首', '上一曲', '切上一首'];
 
+  constructor(customStopKeywords: string[] = []) {
+    if (customStopKeywords && customStopKeywords.length > 0) {
+      this.stopKeywords = Array.from(new Set([...this.stopKeywords, ...customStopKeywords.filter(Boolean)]));
+    }
+  }
+
   public parse(text: string): ParsedVoiceCommand {
     const raw = (text || '').trim();
     if (!raw) {

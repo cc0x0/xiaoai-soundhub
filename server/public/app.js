@@ -1,11 +1,12 @@
-/**
- * XiaoAi SoundHub Web 控制台前端交互逻辑
- */
+let authToken = localStorage.getItem('soundhub_token') || '';
+if (!authToken) {
+  window.location.href = '/login';
+}
 
+let currentUser = JSON.parse(localStorage.getItem('soundhub_user') || '{}');
 let devices = [];
 let selectedDids = new Set();
 let isPlaying = false;
-let authToken = localStorage.getItem('soundhub_token') || '';
 
 // 统一封装带鉴权的请求
 async function authFetch(url, options = {}) {
@@ -14,96 +15,74 @@ async function authFetch(url, options = {}) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
   const res = await fetch(url, { ...options, headers });
-  if (res.status === 401) {
-    showAuthModal();
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem('soundhub_token');
+    window.location.href = '/login';
   }
   return res;
 }
 
 // 1. 初始化
 document.addEventListener('DOMContentLoaded', async () => {
-  await checkAuthStatus();
-  fetchStatus();
+  await initUserProfile();
   fetchDevices();
+  fetchStatus();
   bindEvents();
 
   // 定时拉取播放状态
   setInterval(fetchStatus, 4000);
 });
 
-async function checkAuthStatus() {
+async function initUserProfile() {
   try {
-    const res = await fetch('/api/auth/status');
+    const res = await authFetch('/api/auth/me');
     const json = await res.json();
-    if (json.ok && json.data?.authRequired) {
-      if (!authToken) {
-        showAuthModal();
+    if (json.ok) {
+      currentUser = json.data;
+      localStorage.setItem('soundhub_user', JSON.stringify(currentUser));
+      const nameEl = document.getElementById('user-display-name');
+      if (nameEl) nameEl.innerText = currentUser.username;
+      
+      const badge = document.getElementById('user-plan-badge');
+      if (badge) {
+        badge.innerText = currentUser.plan.toUpperCase();
+        badge.className = 'plan-badge plan-' + currentUser.plan;
+      }
+
+      if (currentUser.role === 'admin') {
+        const adminBtn = document.getElementById('btn-go-admin');
+        if (adminBtn) adminBtn.style.display = 'inline-block';
       }
     }
-  } catch {}
-}
-
-function showAuthModal() {
-  const modal = document.getElementById('auth-modal');
-  if (modal) modal.style.display = 'flex';
-}
-
-function hideAuthModal() {
-  const modal = document.getElementById('auth-modal');
-  if (modal) modal.style.display = 'none';
+  } catch (e) {
+    console.error('Fetch user profile failed:', e);
+  }
 }
 
 function bindEvents() {
-  document.getElementById('btn-refresh-devices').addEventListener('click', fetchDevices);
-  document.getElementById('btn-select-all').addEventListener('click', selectAllDevices);
-  document.getElementById('btn-deselect-all').addEventListener('click', deselectAllDevices);
-  document.getElementById('btn-send-tts').addEventListener('click', sendTTS);
-  document.getElementById('btn-search').addEventListener('click', doSearch);
-  document.getElementById('search-input').addEventListener('keypress', (e) => {
+  document.getElementById('btn-refresh-devices')?.addEventListener('click', fetchDevices);
+  document.getElementById('btn-select-all')?.addEventListener('click', selectAllDevices);
+  document.getElementById('btn-deselect-all')?.addEventListener('click', deselectAllDevices);
+  document.getElementById('btn-send-tts')?.addEventListener('click', sendTTS);
+  document.getElementById('btn-search')?.addEventListener('click', doSearch);
+  document.getElementById('search-input')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') doSearch();
   });
 
-  // 安全口令登录提交
-  const btnAuth = document.getElementById('btn-submit-auth');
-  const authInput = document.getElementById('auth-password-input');
-  if (btnAuth && authInput) {
-    const submitLogin = async () => {
-      const password = authInput.value.trim();
-      const errMsg = document.getElementById('auth-error-msg');
-      if (!password) return;
-      try {
-        btnAuth.disabled = true;
-        btnAuth.textContent = '验证中...';
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password }),
-        });
-        const json = await res.json();
-        if (json.ok && json.data?.token !== undefined) {
-          authToken = json.data.token;
-          localStorage.setItem('soundhub_token', authToken);
-          errMsg.style.display = 'none';
-          hideAuthModal();
-          fetchDevices();
-          fetchStatus();
-        } else {
-          errMsg.textContent = json.error || '访问密码错误';
-          errMsg.style.display = 'block';
-        }
-      } catch (err) {
-        errMsg.textContent = `网络错误: ${err.message}`;
-        errMsg.style.display = 'block';
-      } finally {
-        btnAuth.disabled = false;
-        btnAuth.textContent = '解锁中枢';
-      }
-    };
-    btnAuth.addEventListener('click', submitLogin);
-    authInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') submitLogin();
-    });
-  }
+  // 米家账号绑定弹窗
+  document.getElementById('btn-open-bind-modal')?.addEventListener('click', () => {
+    const m = document.getElementById('bind-mi-modal');
+    if (m) m.style.display = 'flex';
+  });
+  document.getElementById('btn-submit-bind')?.addEventListener('click', submitBindMi);
+  document.getElementById('btn-unbind-mi')?.addEventListener('click', handleUnbindMi);
+
+  // VIP 兑换弹窗
+  document.getElementById('btn-open-redeem-modal')?.addEventListener('click', () => {
+    const m = document.getElementById('redeem-modal');
+    if (m) m.style.display = 'flex';
+  });
+  document.getElementById('btn-submit-redeem')?.addEventListener('click', submitRedeem);
 
   // 快捷常用语
   document.querySelectorAll('.chip').forEach((chip) => {
@@ -121,10 +100,91 @@ function bindEvents() {
   });
 
   // 播放控制器
-  document.getElementById('btn-toggle-play').addEventListener('click', () => controlPlay(isPlaying ? 'pause' : 'resume'));
-  document.getElementById('btn-next').addEventListener('click', () => controlPlay('next'));
-  document.getElementById('btn-prev').addEventListener('click', () => controlPlay('prev'));
-  document.getElementById('btn-stop').addEventListener('click', () => controlPlay('stop'));
+  document.getElementById('btn-toggle-play')?.addEventListener('click', () => controlPlay(isPlaying ? 'pause' : 'resume'));
+  document.getElementById('btn-next')?.addEventListener('click', () => controlPlay('next'));
+  document.getElementById('btn-prev')?.addEventListener('click', () => controlPlay('prev'));
+  document.getElementById('btn-stop')?.addEventListener('click', () => controlPlay('stop'));
+}
+
+window.closeBindModal = function() {
+  const m = document.getElementById('bind-mi-modal');
+  if (m) m.style.display = 'none';
+};
+
+window.closeRedeemModal = function() {
+  const m = document.getElementById('redeem-modal');
+  if (m) m.style.display = 'none';
+};
+
+async function submitBindMi() {
+  const xiaomiUserId = document.getElementById('bind-mi-userid').value.trim();
+  const passToken = document.getElementById('bind-mi-token').value.trim();
+  const nickname = document.getElementById('bind-mi-nickname').value.trim();
+
+  if (!xiaomiUserId || !passToken) {
+    alert('请填写小米账号ID与passToken');
+    return;
+  }
+
+  try {
+    const res = await authFetch('/api/user/account', {
+      method: 'POST',
+      body: JSON.stringify({ xiaomiUserId, passToken, nickname })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      alert('🎉 ' + json.msg);
+      window.closeBindModal();
+      fetchDevices();
+    } else {
+      alert(json.error || '绑定失败');
+    }
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function handleUnbindMi() {
+  if (!confirm('确定要解绑当前小米账号并彻底销毁凭证吗？')) return;
+
+  try {
+    const res = await authFetch('/api/user/account', {
+      method: 'DELETE'
+    });
+    const json = await res.json();
+    if (json.ok) {
+      alert(json.msg);
+      window.closeBindModal();
+      fetchDevices();
+    }
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function submitRedeem() {
+  const code = document.getElementById('redeem-code-input').value.trim();
+  if (!code) {
+    alert('请输入兑换码');
+    return;
+  }
+
+  try {
+    const res = await authFetch('/api/user/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ code })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      alert(json.msg);
+      window.closeRedeemModal();
+      initUserProfile();
+    } else {
+      alert(json.error || '兑换失败');
+    }
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 let activeQueues = {};

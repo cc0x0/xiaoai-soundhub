@@ -1,5 +1,5 @@
 /**
- * XiaoAi SoundHub - RESTful API & Web Server 主入口
+ * XiaoAi SoundHub - SaaS 多租户云平台架构主入口
  */
 
 import express, { Request, Response } from 'express';
@@ -7,12 +7,17 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { AppConfig, ApiResponse } from './types/index.js';
-import { XiaoAiClient } from './speaker/client.js';
+import { AppDatabase } from './db/index.js';
+import { SecurityCrypto } from './security/crypto.js';
 import { SourceEngine } from './source_engine/sandbox.js';
 import { StreamProxy } from './proxy/stream.js';
 import { PlayScheduler } from './scheduler/queue.js';
-import { ConversationListener } from './listener/conversation.js';
+import { MultiTenantSpeakerManager } from './speaker/multi_tenant_manager.js';
+import { XiaoAiClient } from './speaker/client.js';
+import { createAuthRouter, authMiddleware, adminOnlyMiddleware } from './routes/auth.js';
+import { createUserRouter } from './routes/user.js';
+import { createAdminRouter } from './routes/admin.js';
+import { createPaymentRouter } from './routes/payment.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +27,6 @@ process.on('uncaughtException', (err) => {
   console.warn('[Server] 捕获未处理异常（已安全保护）:', err.message);
 });
 process.on('unhandledRejection', (reason: any) => {
-  // 屏蔽第三方音源脚本自身后台版本检测/镜像探活产生的无害异常日志
   const msg = String(reason?.message || reason || '');
   if (reason?.name === 'AggregateError' || msg.includes('AggregateError') || msg.includes('FAILED')) {
     return;
@@ -30,376 +34,193 @@ process.on('unhandledRejection', (reason: any) => {
   console.warn('[Server] 捕获未处理 Promise Rejection（已安全保护）:', reason);
 });
 
-// 1. 加载配置
-function loadConfig(): AppConfig {
-  const configPath = path.join(__dirname, '..', 'config.json');
-  const examplePath = path.join(__dirname, '..', 'config.example.json');
-
-  let rawConfig: any = {};
-  try {
-    if (fs.existsSync(configPath) && fs.statSync(configPath).isFile()) {
-      rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    } else if (fs.existsSync(examplePath) && fs.statSync(examplePath).isFile()) {
-      rawConfig = JSON.parse(fs.readFileSync(examplePath, 'utf-8'));
-    }
-  } catch (e) {
-    console.warn('[Config] 配置文件读取跳过，将使用环境变量配置:', (e as Error).message);
-  }
-
-  // 环境变量覆盖
-  return {
-    server: {
-      port: Number(process.env.PORT || process.env.XIAOI_PORT || rawConfig.server?.port || 8080),
-      host: process.env.HOST || rawConfig.server?.host || '0.0.0.0',
-      token: process.env.ACCESS_PASSWORD || process.env.XIAOI_TOKEN || process.env.TOKEN || rawConfig.server?.token || '',
-      publicBaseUrl: process.env.PUBLIC_BASE_URL || rawConfig.server?.publicBaseUrl || `http://localhost:${rawConfig.server?.port || 8080}`,
-    },
-    speaker: {
-      userId: process.env.XIAOI_USER_ID || process.env.MI_USER_ID || process.env.XIAOMI_USER_ID || process.env.USER_ID || process.env.MI_ACCOUNT || rawConfig.speaker?.userId || '',
-      passToken: process.env.XIAOI_PASS_TOKEN || process.env.MI_PASS_TOKEN || process.env.XIAOMI_PASS_TOKEN || process.env.PASS_TOKEN || rawConfig.speaker?.passToken || '',
-      password: process.env.XIAOI_PASSWORD || process.env.MI_PASSWORD || process.env.XIAOMI_PASSWORD || process.env.PASSWORD || rawConfig.speaker?.password || '',
-      did: process.env.XIAOI_DID || process.env.MI_DID || rawConfig.speaker?.did || '',
-      defaultDid: process.env.XIAOI_DEFAULT_DID || rawConfig.speaker?.defaultDid || '',
-      ttsMode: (process.env.XIAOI_TTS_MODE as any) || rawConfig.speaker?.ttsMode || 'auto',
-      verboseLog: process.env.XIAOI_VERBOSE_LOG === 'true' || !!rawConfig.speaker?.verboseLog,
-      ttsFallbackCommand: rawConfig.speaker?.ttsFallbackCommand || [5, 1],
-      ttsFallbackCommands: rawConfig.speaker?.ttsFallbackCommands || {},
-    },
-    listener: {
-      enabled: process.env.ENABLE_LISTENER !== 'false' && (rawConfig.listener?.enabled !== false),
-      pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || rawConfig.listener?.pollIntervalMs || 1200),
-      keywords: rawConfig.listener?.keywords || ['播放', '播放歌曲', '我想听', '放一首'],
-      controlKeywords: rawConfig.listener?.controlKeywords || {
-        stop: ['停止播放', '别唱了', '闭嘴', '关机'],
-        pause: ['暂停', '暂停播放'],
-        resume: ['继续播放', '恢复播放'],
-        next: ['下一首', '切歌', '换一首'],
-        prev: ['上一首'],
-      },
-    },
-    sourceEngine: {
-      activeSource: process.env.ACTIVE_SOURCE || rawConfig.sourceEngine?.activeSource || 'my-custom-source.js',
-      sourcesDir: path.resolve(__dirname, '..', rawConfig.sourceEngine?.sourcesDir || './sources'),
-      defaultQuality: rawConfig.sourceEngine?.defaultQuality || '320k',
-      proxyStream: rawConfig.sourceEngine?.proxyStream !== false,
-    },
-  };
-}
-
-// IP 防暴力破解记录器
-const failedLoginAttempts = new Map<string, { count: number; blockedUntil: number }>();
-
 async function bootstrap() {
-  const config = loadConfig();
-  console.log(`[XiaoAi SoundHub] 正在启动服务... (端口: ${config.server.port})`);
-  if (config.server.token) {
-    console.log(`[Security] 🔒 访问安全口令保护已启用 (防扫描与未授权调用)`);
+  const port = Number(process.env.SERVER_PORT || process.env.PORT || 8080);
+  const host = process.env.HOST || '0.0.0.0';
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${port}`;
+  const securitySalt = process.env.SECURITY_SALT || process.env.ACCESS_PASSWORD || 'SoundHub_Secure_Master_Key_2026';
+  const jwtSecret = process.env.JWT_SECRET || securitySalt;
+
+  console.log(`[XiaoAi SoundHub] 正在启动 SaaS 多租户云服务... (端口: ${port})`);
+
+  // 1. 初始化 SQLite 多租户数据库
+  const db = new AppDatabase();
+
+  // 2. 自动迁移兼容：若 .env 中存有旧版个人账号，自动同步至 admin 账号
+  const legacyUserId = process.env.XIAOI_USER_ID || process.env.MI_USER_ID;
+  const legacyPassToken = process.env.XIAOI_PASS_TOKEN || process.env.MI_PASS_TOKEN;
+  if (legacyUserId && legacyPassToken && legacyUserId !== '你的小米ID') {
+    const adminAcc = db.getMiAccount('admin_root_001');
+    if (!adminAcc) {
+      console.log('[Database] 🔄 自动迁移 .env 中的小米账号至超级管理员租户...');
+      const enc = SecurityCrypto.encrypt(legacyPassToken, securitySalt);
+      db.saveMiAccount('admin_root_001', legacyUserId, enc, '管理员音箱');
+    }
   }
 
-  // 2. 初始化核心组件
-  const speakerClient = new XiaoAiClient(config.speaker);
-  const sourceEngine = new SourceEngine(config.sourceEngine.sourcesDir, config.sourceEngine.activeSource);
-  const scheduler = new PlayScheduler(sourceEngine, speakerClient, config.server.publicBaseUrl);
-  const listener = new ConversationListener(speakerClient, config.listener.pollIntervalMs);
-
-  // 异步加载音源脚本
+  // 3. 初始化音乐引擎与播放调度器
+  const sourcesDir = path.resolve(__dirname, '..', 'sources');
+  const sourceEngine = new SourceEngine(sourcesDir, process.env.ACTIVE_SOURCE || 'my-custom-source.js');
   await sourceEngine.loadSource();
 
-  // 3. 配置实体语音指令监听逻辑
-  listener.setCommandHandler(async (did, cmd) => {
-    console.log(`[Server] 处理来自音箱 [${did}] 的语音指令:`, cmd);
-    if (cmd.type === 'play' && cmd.keyword) {
-      // 搜歌并自动开播
-      const searchRes = await sourceEngine.search(cmd.keyword, 1, 20);
-      if (searchRes.list && searchRes.list.length > 0) {
-        console.log(`[Server] 语音搜歌成功，即将为音箱 [${did}] 播放首曲: ${searchRes.list[0].singer} - ${searchRes.list[0].name}`);
-        await scheduler.playMusicList(did, searchRes.list, 0);
-      } else {
-        await speakerClient.tts(`抱歉，没有找到 ${cmd.keyword} 的相关歌曲`, { did });
-      }
-    } else if (cmd.type === 'stop') {
-      await scheduler.stop(did);
-    } else if (cmd.type === 'pause') {
-      await scheduler.pause(did);
-    } else if (cmd.type === 'resume') {
-      await scheduler.resume(did);
-    } else if (cmd.type === 'next') {
-      await scheduler.next(did);
-    } else if (cmd.type === 'prev') {
-      await scheduler.prev(did);
-    } else if (cmd.type === 'volume' && cmd.volume !== undefined) {
-      await speakerClient.setVolume(cmd.volume, { did });
-    }
+  // 兜底虚拟 client 供全局单例调度使用
+  const fallbackClient = new XiaoAiClient({
+    userId: legacyUserId || '',
+    passToken: legacyPassToken || '',
+    defaultDid: process.env.XIAOI_DEFAULT_DID || '',
   });
 
-  // 如果配置了小米账号，启动语音监听
-  if (config.speaker.userId && (config.speaker.passToken || config.speaker.password)) {
-    try {
-      const devices = await speakerClient.listDevices();
-      if (!speakerClient.isAuthSuspended && devices.length > 0) {
-        console.log(`[Server] 小米账号认证成功，已拉取 ${devices.length} 台音箱设备`);
-        if (config.listener.enabled) {
-          listener.start();
-        }
-      } else {
-        console.warn(`[Server] ⚠️ 小米账号未成功拉取到设备或遇到安全风控，后台语音监听已安全关闭（不影响 Web 与移动端音乐投播接口）。`);
-      }
-    } catch (err: any) {
-      console.warn(`[Server] 小米账号登录认证异常:`, err.message);
-    }
-  } else {
-    console.warn(`[Server] 尚未配置小米账号凭证 (userId / passToken)，请在 config.json 或环境变量中配置`);
+  const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl);
+  const speakerManager = new MultiTenantSpeakerManager(db, securitySalt, scheduler, sourceEngine);
+
+  // 4. 启动所有租户的语音监听池
+  if (process.env.ENABLE_LISTENER !== 'false') {
+    speakerManager.startAllActiveListeners().catch(() => {});
   }
 
-  // 4. 构建 Express App
+  // 5. 创建 Express Web 路由
   const app = express();
   app.use(cors());
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
-  // 静态托管 Web 控制台
+  // 静态资源托管
   const publicDir = path.join(__dirname, '..', 'public');
-  if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
-  }
+  app.use(express.static(publicDir));
 
-  // 认证状态与登录 API (免鉴权)
-  app.get('/api/auth/status', (_req: Request, res: Response) => {
-    res.json({
-      ok: true,
-      data: {
-        authRequired: !!config.server.token,
-      },
-    });
+  // 流媒体中继代理
+  app.get('/proxy/stream', (req: Request, res: Response) => {
+    StreamProxy.handleProxy(req, res);
   });
 
-  app.post('/api/auth/login', (req: Request, res: Response) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    const record = failedLoginAttempts.get(ip);
-    const now = Date.now();
+  // REST API 模块挂载
+  app.use('/api/auth', createAuthRouter(db, jwtSecret));
+  app.use('/api/user', authMiddleware(jwtSecret), createUserRouter(db, speakerManager, securitySalt, sourceEngine, scheduler));
+  app.use('/api/admin', authMiddleware(jwtSecret), adminOnlyMiddleware, createAdminRouter(db));
+  app.use('/api/payment', createPaymentRouter(db));
 
-    if (record && record.count >= 5 && now < record.blockedUntil) {
-      const remainSec = Math.ceil((record.blockedUntil - now) / 1000);
-      res.status(429).json({ ok: false, error: `输错密码过多，请等待 ${remainSec} 秒后再试` });
-      return;
-    }
-
-    const { password } = req.body;
-    if (!config.server.token || password === config.server.token) {
-      failedLoginAttempts.delete(ip);
-      res.json({ ok: true, data: { token: config.server.token } });
-    } else {
-      const currentCount = (record?.count || 0) + 1;
-      const blockedUntil = currentCount >= 5 ? now + 15 * 60 * 1000 : 0;
-      failedLoginAttempts.set(ip, { count: currentCount, blockedUntil });
-      res.status(401).json({ ok: false, error: '访问密码错误，请重新输入' });
-    }
-  });
-
-  // 安全防护 Token 中间件 (保护全部控制 API 与音箱状态)
-  app.use((req, res, next) => {
-    if (!config.server.token) return next();
-    // 允许免认证的路径：静态页面、音频流反代代理、登录认证接口
-    if (
-      req.path.startsWith('/proxy/stream') ||
-      req.path.startsWith('/api/auth/') ||
-      req.path === '/' ||
-      req.path.endsWith('.html') ||
-      req.path.endsWith('.js') ||
-      req.path.endsWith('.css') ||
-      req.path.endsWith('.ico')
-    ) {
-      return next();
-    }
-    const token = req.headers['authorization']?.replace('Bearer ', '') || req.headers['x-token'] || req.query.token;
-    if (token !== config.server.token) {
-      res.status(401).json({ ok: false, error: '未授权：请先输入访问口令' });
-      return;
-    }
-    next();
-  });
-
-  // --- RESTful API 路由定义 ---
-
-  // 1. 获取音箱列表
-  app.get('/api/devices', async (req: Request, res: Response) => {
-    try {
-      const devices = await speakerClient.listDevices();
-      res.json({ ok: true, data: devices } as ApiResponse);
-    } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message } as ApiResponse);
-    }
-  });
-
-  // 2. 发送文本语音 TTS (单选或多选全屋广播，支持清脆提示音预播与播报完毕音乐自动恢复)
-  app.post('/api/tts', async (req: Request, res: Response) => {
-    try {
-      const { text, did, dids, chime } = req.body;
-      if (!text) {
-        res.status(400).json({ ok: false, error: 'text is required' });
-        return;
-      }
-
-      const targetDids: string[] = dids || (did ? [did] : []);
-      // 记录在播报前哪些音箱正在播放音乐
-      const playingDids = targetDids.filter((d) => !!scheduler.getCurrentState(d));
-
-      const results = await speakerClient.ttsMulti(text, targetDids, {
-        chime: chime !== undefined ? chime : 'dingdong',
-        publicBaseUrl: config.server.publicBaseUrl,
-      });
-
-      // 如果播报前有音箱正在放歌，等待朗读结束后自动恢复音乐播放
-      if (playingDids.length > 0) {
-        const hasChime = chime !== 'none' && chime !== false;
-        const estimatedSpeakMs = (hasChime ? 1500 : 0) + Math.max(2500, text.length * 300) + 1600;
-
-        setTimeout(() => {
-          playingDids.forEach((d) => {
-            scheduler.resume(d).catch(() => {});
-          });
-        }, estimatedSpeakMs);
-      }
-
-      res.json({ ok: true, data: results } as ApiResponse);
-    } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message } as ApiResponse);
-    }
-  });
-
-  // 3. 全网搜索音乐 (调取云端 LX 音源)
+  // 公共音乐搜索接口
   app.get('/api/search', async (req: Request, res: Response) => {
     try {
-      const keyword = req.query.keyword as string;
-      const page = Number(req.query.page || 1);
-      const limit = Number(req.query.limit || 20);
-      const source = (req.query.source as string) || 'kw';
+      const keyword = (req.query.keyword as string || '').trim();
+      const page = Number(req.query.page) || 1;
+      const limit = Number(req.query.limit) || 20;
+      const source = (req.query.source as string) || db.getSystemSetting('default_platform', 'kw');
 
       if (!keyword) {
         res.status(400).json({ ok: false, error: 'keyword is required' });
         return;
       }
 
-      const results = await sourceEngine.search(keyword, page, limit, source);
-      res.json({ ok: true, data: results } as ApiResponse);
-    } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message } as ApiResponse);
+      const result = await sourceEngine.search(keyword, page, limit, source);
+      res.json({ ok: true, data: result });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 
-  // 4. 获取音乐播放直链
-  app.get('/api/url', async (req: Request, res: Response) => {
-    try {
-      const songId = req.query.songId as string;
-      const songName = req.query.name as string;
-      const singer = req.query.singer as string;
-      const quality = (req.query.quality as string) || config.sourceEngine.defaultQuality;
-
-      const urlRes = await sourceEngine.getMusicUrl({ id: songId, name: songName, singer }, quality);
-      res.json({ ok: true, data: urlRes } as ApiResponse);
-    } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message } as ApiResponse);
-    }
-  });
-
-  // 5. 投播歌曲到指定音箱
-  app.post('/api/play', async (req: Request, res: Response) => {
-    try {
-      const { music, did, dids } = req.body;
-      if (!music) {
-        res.status(400).json({ ok: false, error: 'music item is required' });
-        return;
-      }
-
-      const targetDids: string[] = dids || (did ? [did] : []);
-      const results: Record<string, boolean> = {};
-
-      for (const targetDid of targetDids) {
-        const ok = await scheduler.playSingle(targetDid, music);
-        results[targetDid] = ok;
-      }
-
-      res.json({ ok: true, data: results } as ApiResponse);
-    } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message } as ApiResponse);
-    }
-  });
-
-  // 6. 播放控制 (暂停/继续/下一首/上一首/音量，支持单选与多选全屋音箱)
+  // 播放控制接口
   app.post('/api/control', async (req: Request, res: Response) => {
     try {
-      const { action, did, dids, value } = req.body;
-      let targetDids: string[] = dids || (did ? [did] : []);
-      if (targetDids.length === 0) {
-        const devices = speakerClient.getCachedDevices().filter((d) => d.source === 'MiNA');
-        if (devices.length > 0) targetDids.push(devices[0].did);
-      }
+      const { action, did, music, playlist, index, volume, text, speed } = req.body;
+      const targetDid = did || process.env.XIAOI_DEFAULT_DID || '';
 
-      for (const targetDid of targetDids) {
-        switch (action) {
-          case 'pause':
-            await scheduler.pause(targetDid);
-            break;
-          case 'resume':
-            await scheduler.resume(targetDid);
-            break;
-          case 'stop':
-            await scheduler.stop(targetDid);
-            break;
-          case 'next':
-            await scheduler.next(targetDid);
-            break;
-          case 'prev':
-            await scheduler.prev(targetDid);
-            break;
-          case 'volume':
-            if (typeof value === 'number') {
-              await speakerClient.setVolume(value, { did: targetDid });
-            }
-            break;
-          default:
-            res.status(400).json({ ok: false, error: `Unsupported action: ${action}` });
+      switch (action) {
+        case 'play_list':
+          if (!Array.isArray(playlist) || playlist.length === 0) {
+            res.status(400).json({ ok: false, error: 'playlist must be a non-empty array' });
             return;
-        }
-      }
+          }
+          await scheduler.playMusicList(targetDid, playlist, index || 0);
+          res.json({ ok: true, msg: '播放列表已下发' });
+          break;
 
-      res.json({ ok: true, msg: `Action ${action} executed` } as ApiResponse);
-    } catch (err: any) {
-      res.status(500).json({ ok: false, error: err.message } as ApiResponse);
+        case 'play_music':
+          if (!music) {
+            res.status(400).json({ ok: false, error: 'music object is required' });
+            return;
+          }
+          await scheduler.playMusicList(targetDid, [music], 0);
+          res.json({ ok: true, msg: `正在为音箱播放: ${music.singer} - ${music.name}` });
+          break;
+
+        case 'pause':
+          await scheduler.pause(targetDid);
+          res.json({ ok: true, msg: '已暂停播放' });
+          break;
+
+        case 'resume':
+          await scheduler.resume(targetDid);
+          res.json({ ok: true, msg: '已恢复播放' });
+          break;
+
+        case 'stop':
+          await scheduler.stop(targetDid);
+          res.json({ ok: true, msg: '已停止播放并清空定时器' });
+          break;
+
+        case 'next':
+          await scheduler.next(targetDid);
+          res.json({ ok: true, msg: '已切下一首' });
+          break;
+
+        case 'prev':
+          await scheduler.prev(targetDid);
+          res.json({ ok: true, msg: '已切上一首' });
+          break;
+
+        case 'volume':
+          if (volume === undefined) {
+            res.status(400).json({ ok: false, error: 'volume is required' });
+            return;
+          }
+          await fallbackClient.setVolume(Number(volume), { did: targetDid });
+          res.json({ ok: true, msg: `音量已调整为 ${volume}%` });
+          break;
+
+        case 'tts':
+          if (!text) {
+            res.status(400).json({ ok: false, error: 'text is required' });
+            return;
+          }
+          await fallbackClient.tts(text, { did: targetDid, chime: true, publicBaseUrl });
+          res.json({ ok: true, msg: '语音已插播' });
+          break;
+
+        default:
+          res.status(400).json({ ok: false, error: `不支持的控制动作: ${action}` });
+      }
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 
-  // 7. 音频流中继代理 (Range 支持)
-  app.get('/proxy/stream', StreamProxy.handleProxy);
-
-  // 8. 状态监控 (支持全屋多音箱并发状态实时反馈)
+  // 设备状态查询
   app.get('/api/status', (req: Request, res: Response) => {
-    res.json({
-      ok: true,
-      data: {
-        server: 'XiaoAi SoundHub',
-        version: '1.0.0',
-        activeSource: config.sourceEngine.activeSource,
-        devicesCount: speakerClient.getCachedDevices().length,
-        listenerRunning: config.listener.enabled,
-        currentPlayState: scheduler.getCurrentState(),
-        activeQueues: scheduler.getAllStates(),
-        devices: speakerClient.getCachedDevices(),
-      },
-    } as ApiResponse);
+    const states = scheduler.getAllStates();
+    res.json({ ok: true, data: { states, timestamp: Date.now() } });
   });
 
-  // 启动监听
-  app.listen(config.server.port, config.server.host, () => {
-    console.log(`\n======================================================`);
-    console.log(`🚀 XiaoAi SoundHub 服务已就绪!`);
-    console.log(`🌐 Web 控制台访问: http://localhost:${config.server.port}`);
-    console.log(`🔌 REST API 基础路径: http://localhost:${config.server.port}/api`);
-    console.log(`======================================================\n`);
+  // 页面重定向路由
+  app.get('/app', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+  app.get('/admin', (_req, res) => res.sendFile(path.join(publicDir, 'admin.html')));
+  app.get('/login', (_req, res) => res.sendFile(path.join(publicDir, 'login.html')));
+
+  // 启动 HTTP 服务
+  app.listen(port, host, () => {
+    console.log(`
+======================================================
+🚀 XiaoAi SoundHub SaaS 多租户云平台已就绪!
+🌐 用户控制台: ${publicBaseUrl}/app
+🛠️ 超级管理后台: ${publicBaseUrl}/admin
+🔑 用户登录/注册: ${publicBaseUrl}/login
+🔌 REST API: ${publicBaseUrl}/api
+======================================================
+    `);
   });
 }
 
 bootstrap().catch((err) => {
-  console.error('[XiaoAi SoundHub] 启动失败:', err);
+  console.error('[Server] 启动失败:', err);
   process.exit(1);
 });
-

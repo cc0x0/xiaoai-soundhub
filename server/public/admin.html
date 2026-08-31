@@ -1,0 +1,205 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XiaoAi SoundHub - 超级管理后台</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .admin-container {
+      max-width: 1200px;
+      margin: 30px auto;
+      padding: 0 20px;
+    }
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      margin-bottom: 24px;
+    }
+    .admin-nav {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .admin-nav-btn {
+      padding: 10px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .admin-nav-btn.active {
+      background: var(--primary-color);
+      border-color: var(--primary-color);
+    }
+    .admin-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-val {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--primary-color);
+      margin-top: 8px;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .data-table th, .data-table td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 13px;
+    }
+    .data-table th {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+    }
+    .plan-badge {
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .plan-free { background: rgba(255, 255, 255, 0.1); color: #ccc; }
+    .plan-pro { background: rgba(255, 106, 0, 0.2); color: #ff6a00; border: 1px solid #ff6a00; }
+    .plan-lifetime { background: rgba(238, 9, 121, 0.2); color: #ee0979; border: 1px solid #ee0979; }
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+    .modal-card {
+      background: #1a1a1f;
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      width: 440px;
+      padding: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-container">
+    <div class="admin-header">
+      <div>
+        <h2 style="margin: 0 0 4px 0;">🛠️ SoundHub 超级管理中心</h2>
+        <span style="font-size: 12px; color: var(--text-muted);">SaaS 多租户全站运行看板与全局调度控制台</span>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button class="btn btn-secondary" onclick="window.location.href='/app'">进入用户工作台</button>
+        <button class="btn btn-secondary" onclick="adminLogout()">退出登录</button>
+      </div>
+    </div>
+
+    <div class="admin-stats-grid">
+      <div class="stat-card">
+        <div style="color: var(--text-muted); font-size: 13px;">👥 平台总注册租户</div>
+        <div class="stat-val" id="stat-total-users">0</div>
+      </div>
+      <div class="stat-card">
+        <div style="color: var(--text-muted); font-size: 13px;">💎 VIP / 终身会员数</div>
+        <div class="stat-val" id="stat-pro-users" style="color: #52c41a;">0</div>
+      </div>
+      <div class="stat-card">
+        <div style="color: var(--text-muted); font-size: 13px;">📻 已绑定米家账号总数</div>
+        <div class="stat-val" id="stat-bound-accs">0</div>
+      </div>
+      <div class="stat-card">
+        <div style="color: var(--text-muted); font-size: 13px;">⚙️ 全局动态调优参数</div>
+        <div class="stat-val" id="stat-settings-count">6</div>
+      </div>
+    </div>
+
+    <div class="admin-nav">
+      <button class="admin-nav-btn active" id="btn-tab-users" onclick="switchAdminTab('users')">👥 租户与订阅管理</button>
+      <button class="admin-nav-btn" id="btn-tab-settings" onclick="switchAdminTab('settings')">⚙️ 全局调度魔数调优</button>
+    </div>
+
+    <!-- Tab 1: 租户用户管理 -->
+    <div id="panel-users">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>用户ID / 用户名</th>
+            <th>当前套餐</th>
+            <th>音箱配额</th>
+            <th>VIP 到期时间</th>
+            <th>账号状态</th>
+            <th>注册时间</th>
+            <th>管理操作</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">正在加载租户列表...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Tab 2: 系统全局魔数设置 -->
+    <div id="panel-settings" style="display: none;">
+      <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px;">
+        <h3 style="margin-top: 0;">⚙️ 在线热调节系统全局参数 (无需重启服务即刻生效)</h3>
+        <div id="settings-form-container"></div>
+        <button class="btn btn-primary" style="margin-top: 18px;" onclick="saveSystemSettings()">💾 保存并立即热生效</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手动授予 VIP 弹窗 -->
+  <div class="modal-overlay" id="plan-modal">
+    <div class="modal-card">
+      <h3 style="margin-top: 0;">👑 调整租户套餐与权益</h3>
+      <input type="hidden" id="modal-user-id">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">选择套餐级别</label>
+        <select id="modal-plan-select" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+          <option value="free">FREE (基础免费版)</option>
+          <option value="pro">PRO (专业订阅版)</option>
+          <option value="lifetime">LIFETIME (终身旗舰版)</option>
+        </select>
+      </div>
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">授权天数 (仅限PRO版)</label>
+        <input type="number" id="modal-plan-days" value="365" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+      </div>
+      <div style="margin-bottom: 20px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">允许绑定音箱台数上限</label>
+        <input type="number" id="modal-max-devices" value="10" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px;">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-secondary" onclick="closePlanModal()">取消</button>
+        <button class="btn btn-primary" onclick="submitPlanChange()">确认授权</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

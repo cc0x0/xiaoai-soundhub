@@ -8,7 +8,10 @@ services:
     environment:
       - PORT=8080
       - HOST=0.0.0.0
-      # 账号与网络参数自动从 .env 文件读取
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123456}
+      - SECURITY_SALT=${SECURITY_SALT:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      # 账号与网络参数自动从 .env 文件读取 (旧版单租户自动无缝迁移至超级管理员)
       - XIAOI_USER_ID=${XIAOI_USER_ID:-你的小米ID}
       - XIAOI_PASS_TOKEN=${XIAOI_PASS_TOKEN:-你的passToken}
       - ACCESS_PASSWORD=${ACCESS_PASSWORD:-}
@@ -18,5 +21,6 @@ services:
       - ENABLE_LISTENER=${ENABLE_LISTENER:-true}
     volumes:
       - ./sources:/app/sources
+      - ./data:/app/data
       - ./data:/root/.xiaoai-soundhub
 

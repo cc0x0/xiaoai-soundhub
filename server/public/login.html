@@ -1,0 +1,202 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XiaoAi SoundHub - 登录 / 注册</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .auth-container {
+      max-width: 420px;
+      margin: 80px auto;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 32px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    }
+    .auth-tabs {
+      display: flex;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .auth-tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+    .auth-tab.active {
+      color: var(--primary-color);
+      border-bottom: 2px solid var(--primary-color);
+    }
+    .auth-input-group {
+      margin-bottom: 18px;
+    }
+    .auth-input-group label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .auth-input-group input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .auth-input-group input:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 2px rgba(255, 106, 0, 0.2);
+    }
+    .auth-btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #ff6a00, #ee0979);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: opacity 0.2s;
+    }
+    .auth-btn:hover {
+      opacity: 0.9;
+    }
+    .auth-footer {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h2 style="margin: 0 0 6px 0;">📻 XiaoAi SoundHub</h2>
+      <p style="color: var(--text-muted); font-size: 13px; margin: 0;">小爱全屋无损音乐声枢 · SaaS 多租户云平台</p>
+    </div>
+
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">账号登录</div>
+      <div class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">新用户注册</div>
+    </div>
+
+    <div id="auth-alert" style="display: none; padding: 10px; border-radius: 6px; font-size: 13px; margin-bottom: 16px;"></div>
+
+    <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+      <div class="auth-input-group">
+        <label>用户名 / 手机号</label>
+        <input type="text" id="auth-username" placeholder="请输入用户名" required autocomplete="username">
+      </div>
+      <div class="auth-input-group">
+        <label>登录密码</label>
+        <input type="password" id="auth-password" placeholder="请输入密码" required autocomplete="current-password">
+      </div>
+      <div class="auth-input-group" id="group-confirm-pass" style="display: none;">
+        <label>确认密码</label>
+        <input type="password" id="auth-confirm-password" placeholder="请再次输入密码" autocomplete="new-password">
+      </div>
+      <button type="submit" class="auth-btn" id="auth-submit-btn">立即登录</button>
+    </form>
+
+    <div class="auth-footer">
+      🔒 银行级 AES-256 加密 · 小米官方直连 · 零隐私泄漏
+    </div>
+  </div>
+
+  <script>
+    let currentTab = 'login';
+
+    function switchAuthTab(tab) {
+      currentTab = tab;
+      document.getElementById('tab-login').className = 'auth-tab ' + (tab === 'login' ? 'active' : '');
+      document.getElementById('tab-register').className = 'auth-tab ' + (tab === 'register' ? 'active' : '');
+      document.getElementById('group-confirm-pass').style.display = tab === 'register' ? 'block' : 'none';
+      document.getElementById('auth-submit-btn').innerText = tab === 'login' ? '立即登录' : '立即注册';
+      hideAlert();
+    }
+
+    function showAlert(msg, isError) {
+      const el = document.getElementById('auth-alert');
+      el.innerText = msg;
+      el.style.display = 'block';
+      el.style.background = isError ? 'rgba(255, 77, 79, 0.2)' : 'rgba(82, 196, 26, 0.2)';
+      el.style.color = isError ? '#ff4d4f' : '#52c41a';
+      el.style.border = '1px solid ' + (isError ? '#ff4d4f' : '#52c41a');
+    }
+
+    function hideAlert() {
+      document.getElementById('auth-alert').style.display = 'none';
+    }
+
+    async function handleAuthSubmit(e) {
+      e.preventDefault();
+      const username = document.getElementById('auth-username').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const confirmPassword = document.getElementById('auth-confirm-password').value;
+
+      if (currentTab === 'register' && password !== confirmPassword) {
+        showAlert('两次输入的密码不一致', true);
+        return;
+      }
+
+      const endpoint = currentTab === 'login' ? '/api/auth/login' : '/api/auth/register';
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          localStorage.setItem('soundhub_token', json.data.token);
+          localStorage.setItem('soundhub_user', JSON.stringify(json.data.user));
+          showAlert('登录成功，正在进入工作台...', false);
+          setTimeout(() => {
+            if (json.data.user.role === 'admin') {
+              window.location.href = '/admin';
+            } else {
+              window.location.href = '/app';
+            }
+          }, 600);
+        } else {
+          showAlert(json.error || '操作失败', true);
+        }
+      } catch (err) {
+        showAlert('网络连接异常: ' + err.message, true);
+      }
+    }
+
+    // 检查已登录态
+    (async function checkExistingAuth() {
+      const token = localStorage.getItem('soundhub_token');
+      if (token) {
+        try {
+          const res = await fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + token } });
+          const json = await res.json();
+          if (json.ok) {
+            if (json.data.role === 'admin') {
+              window.location.href = '/admin';
+            } else {
+              window.location.href = '/app';
+            }
+          }
+        } catch {}
+      }
+    })();
+  </script>
+</body>
+</html>
