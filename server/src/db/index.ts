@@ -1,3 +1,4 @@
+// @ts-ignore
 import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
