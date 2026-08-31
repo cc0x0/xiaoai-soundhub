@@ -4,20 +4,18 @@ services:
     container_name: xiaoai-soundhub
     restart: unless-stopped
     ports:
-      - "8989:8080" # 左侧为外部访问端口（可随意改为任意未占用的端口，如 8989, 9080 等）
+      - "${SERVER_PORT:-8989}:8080" # 外部访问端口 (优先读取 .env 中的 SERVER_PORT，默认 8989)
     environment:
       - PORT=8080
       - HOST=0.0.0.0
-      # 必填：你的小米账号数字ID与passToken
-      - XIAOI_USER_ID=你的小米ID
-      - XIAOI_PASS_TOKEN=你的passToken
-      # 安全防护：公网访问口令/密码 (设置后访问网页和API必须验证密码，防止被全网扫描盗用)
-      - ACCESS_PASSWORD=
-      # 可选：默认设备DID
-      - XIAOI_DEFAULT_DID=
-      # 必填：外网访问地址与端口（端口需与上方 ports 左侧保持一致）
-      - PUBLIC_BASE_URL=http://你的云服务器IP:8989
-      - ENABLE_LISTENER=true
+      # 账号与网络参数自动从 .env 文件读取
+      - XIAOI_USER_ID=${XIAOI_USER_ID:-你的小米ID}
+      - XIAOI_PASS_TOKEN=${XIAOI_PASS_TOKEN:-你的passToken}
+      - ACCESS_PASSWORD=${ACCESS_PASSWORD:-}
+      - XIAOI_DEFAULT_DID=${XIAOI_DEFAULT_DID:-}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://你的云服务器IP:8989}
+      - ACTIVE_SOURCE=${ACTIVE_SOURCE:-my-custom-source.js}
+      - ENABLE_LISTENER=${ENABLE_LISTENER:-true}
     volumes:
       - ./sources:/app/sources
       - ./data:/root/.xiaoai-soundhub
