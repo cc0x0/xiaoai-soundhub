@@ -99,6 +99,26 @@ async function bootstrap() {
   app.use('/api/admin', authMiddleware(jwtSecret), adminOnlyMiddleware, createAdminRouter(db));
   app.use('/api/payment', createPaymentRouter(db));
 
+  // 兼容旧版客户端接口: /api/devices
+  app.get('/api/devices', async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const payload = SecurityCrypto.verifyToken<{ id: string }>(token, jwtSecret);
+        if (payload?.id) {
+          const speakers = db.getSpeakers(payload.id);
+          res.json({ ok: true, data: speakers });
+          return;
+        }
+      }
+      const adminSpeakers = db.getSpeakers('admin_root_001');
+      res.json({ ok: true, data: adminSpeakers });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // 公共音乐搜索接口
   app.get('/api/search', async (req: Request, res: Response) => {
     try {

@@ -15,7 +15,7 @@ export function createUserRouter(
 ): Router {
   const router = Router();
 
-  // 1. 获取小米账号绑定夶态加密脿敏)
+  // 1. 获取小米账号绑定状态 (安全脱敏)
   router.get('/account', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const miAcc = db.getMiAccount(userId);
@@ -30,20 +30,20 @@ export function createUserRouter(
       data: {
         isBound: true,
         xiaomiUserIdMasked: SecurityCrypto.maskText(miAcc.xiaomi_user_id),
-        nickname: miAcc.nickname || '汲家谷号',
+        nickname: miAcc.nickname || '米家账号',
         updatedAt: miAcc.updated_at,
       },
     });
   });
 
-  // 2. 绑定苵更新小禲墶号 (AES-256 加密存入数据座)
+  // 2. 绑定或更新小米账号 (AES-256 加密存入数据库)
   router.post('/account', async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user!.id;
       const { xiaomiUserId, passToken, nickname } = req.body;
 
       if (!xiaomiUserId || !passToken) {
-        res.status(400).json({ ok: false, error: '小禲墶号ID和passToken为必项早' });
+        res.status(400).json({ ok: false, error: '小米账号ID和passToken为必填项' });
         return;
       }
 
@@ -62,24 +62,24 @@ export function createUserRouter(
 
       res.json({
         ok: true,
-        msg: `{小穲报号绑定成功，已同步 ${count} 台访备}`,
+        msg: `小米账号绑定成功，已同步 ${count} 台设备`,
         data: { count },
       });
     } catch (err: any) {
-      res.status(500).json({ ok: false, error: '纱定〱敗: ' + err.message });
+      res.status(500).json({ ok: false, error: '绑定失败: ' + err.message });
     }
   });
 
-  // 3. 解绑小穲报号并物理销毁化证
+  // 3. 解绑小米账号并物理销毁凭证
   router.delete('/account', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     speakerManager.stopListener(userId);
     speakerManager.invalidateClient(userId);
     db.deleteMiAccount(userId);
-    res.json({ ok: true, msg: '小米账号已安全觡绑|所有凭证已彻幕销毁' });
+    res.json({ ok: true, msg: '小米账号已安全解绑，所有凭证已彻底销毁' });
   });
 
-  // 4. 莿���用户设备列衪
+  // 4. 获取用户设备列表
   router.get('/speakers', async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.user!.id;
@@ -99,7 +99,7 @@ export function createUserRouter(
     }
   });
 
-  // 5. 设置主点歌网关埳管
+  // 5. 设置主点歌网关音箱
   router.post('/speakers/gateway', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { did } = req.body;
@@ -111,7 +111,7 @@ export function createUserRouter(
     res.json({ ok: true, msg: '已成功设为主点歌网关' });
   });
 
-  // 6. 切换屏蔮�/忽畅状态
+  // 6. 切换屏蔽/忽略状态
   router.post('/speakers/ignore', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { did, isIgnored } = req.body;
@@ -120,10 +120,10 @@ export function createUserRouter(
       return;
     }
     db.toggleSpeakerIgnored(userId, did, !!isIgnored);
-    res.json({ ok: true, msg: isIgnored ? '峲屏蔮该设备' : '已取消屏蔮w' });
+    res.json({ ok: true, msg: isIgnored ? '已屏蔽该设备' : '已取消屏蔽' });
   });
 
-  // 7. 切换毭音监听开关
+  // 7. 切换语音监听开关
   router.post('/speakers/listener', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { did, isEnabled } = req.body;
@@ -132,17 +132,17 @@ export function createUserRouter(
       return;
     }
     db.toggleSpeakerListener(userId, did, !!isEnabled);
-    res.json({ ok: true, msg: isEnabled ? '峲开启毭音监吧' : '已暂停毭iύ癹d��' });
+    res.json({ ok: true, msg: isEnabled ? '已开启语音监听' : '已暂停语音监听' });
   });
 
-  // 8. 获取用戶个亸化偏好
+  // 8. 获取用户个性化偏好
   router.get('/settings', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const settings = db.getUserSettings(userId);
     res.json({ ok: true, data: settings });
   });
 
-  // 9. 更新用戶个亸化偏好
+  // 9. 更新用户个性化偏好
   router.post('/settings', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { active_source, preferred_quality, custom_stop_keywords, custom_prefixes, enable_tts_chime, default_chime } = req.body;
@@ -177,18 +177,18 @@ export function createUserRouter(
         isVip: !!isVip,
         maxDevices: user.max_devices,
         expiresAt: user.expires_at,
-        expiresAtFormatted: user.expires_at ? new Date(user.expires_at).toLocaleDateString() : '水久有效',
+        expiresAtFormatted: user.expires_at ? new Date(user.expires_at).toLocaleDateString() : '永久有效',
       },
     });
   });
 
-  // 11. 卡密鿀换戶 / 兑换码
+  // 11. 卡密激活 / 兑换码
   router.post('/redeem', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { code } = req.body;
 
     if (!code) {
-      res.status(400).json({ ok: false, error: '请输入卡寅戔兑换码' });
+      res.status(400).json({ ok: false, error: '请输入卡密或兑换码' });
       return;
     }
 

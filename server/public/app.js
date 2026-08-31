@@ -10,9 +10,12 @@ let isPlaying = false;
 
 // 统一封装带鉴权的请求
 async function authFetch(url, options = {}) {
-  const headers = options.headers || {};
+  const headers = { ...(options.headers || {}) };
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
   }
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401 || res.status === 403) {
@@ -279,7 +282,7 @@ async function fetchDevices() {
   container.innerHTML = '<div class="empty-hint">正在拉取设备列表...</div>';
 
   try {
-    const res = await authFetch('/api/devices');
+    const res = await authFetch('/api/user/speakers');
     const json = await res.json();
 
     if (json.ok && json.data) {
@@ -287,12 +290,14 @@ async function fetchDevices() {
       document.getElementById('device-count').textContent = devices.length;
 
       if (devices.length === 0) {
-        container.innerHTML = '<div class="empty-hint">未发现音箱，请在 config.json 检查小米账号配置</div>';
+        container.innerHTML = '<div class="empty-hint">暂未发现音箱，请点击左上角「绑定小米账号」同步设备</div>';
         return;
       }
 
-      // 默认全选
-      devices.forEach((d) => selectedDids.add(d.did));
+      // 默认全选未屏蔽的设备
+      devices.forEach((d) => {
+        if (!d.is_ignored) selectedDids.add(d.did);
+      });
       renderDevices();
     } else {
       container.innerHTML = `<div class="empty-hint">加载失败: ${json.error || '未授权或连接失败'}</div>`;
@@ -310,9 +315,11 @@ function renderDevices() {
     const isSelected = selectedDids.has(dev.did);
     const playState = activeQueues[dev.did];
     const isDevicePlaying = !!playState;
+    const isGateway = !!dev.is_gateway;
+    const isIgnored = !!dev.is_ignored;
 
     const item = document.createElement('div');
-    item.className = `device-item ${isSelected ? 'selected' : ''} ${isDevicePlaying ? 'is-playing' : ''}`;
+    item.className = `device-item ${isSelected ? 'selected' : ''} ${isDevicePlaying ? 'is-playing' : ''} ${isIgnored ? 'is-ignored' : ''}`;
     item.innerHTML = `
       <div class="device-checkbox">
         <input type="checkbox" ${isSelected ? 'checked' : ''} data-did="${dev.did}" />
@@ -320,6 +327,8 @@ function renderDevices() {
       <div class="device-info">
         <div class="device-name-row">
           <span class="device-name">${escapeHtml(dev.name || dev.alias || dev.did)}</span>
+          ${isGateway ? '<span class="badge badge-warning" style="font-size:11px;padding:2px 6px;border-radius:4px;background:#f59e0b;color:#fff;margin-left:4px;">🌟 主网关</span>' : ''}
+          ${isIgnored ? '<span class="badge badge-danger" style="font-size:11px;padding:2px 6px;border-radius:4px;background:#ef4444;color:#fff;margin-left:4px;">🚫 已屏蔽</span>' : ''}
           <span class="device-model">${escapeHtml(dev.model || '小爱音箱')}</span>
         </div>
         ${
@@ -327,12 +336,18 @@ function renderDevices() {
             ? `<div class="device-playing-song">🎵 正在播放: <strong>${escapeHtml(playState.music.name)}</strong> - ${escapeHtml(playState.music.singer)}</div>`
             : ''
         }
+        <div class="device-actions" style="margin-top:6px;display:flex;gap:6px;">
+          ${!isGateway ? `<button class="btn-action-small" onclick="handleSetGateway(event, '${dev.did}')" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #3b82f6;background:transparent;color:#60a5fa;cursor:pointer;">⭐ 设为主网关</button>` : ''}
+          <button class="btn-action-small" onclick="handleToggleIgnore(event, '${dev.did}', ${isIgnored ? 0 : 1})" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #64748b;background:transparent;color:#94a3b8;cursor:pointer;">
+            ${isIgnored ? '👁️ 取消屏蔽' : '🚫 屏蔽设备'}
+          </button>
+        </div>
       </div>
-      <div class="device-status-tag ${isDevicePlaying ? 'playing' : ''}">${isDevicePlaying ? '▶️ 播放中' : dev.online ? '在线' : '离线'}</div>
+      <div class="device-status-tag ${isDevicePlaying ? 'playing' : ''}">${isDevicePlaying ? '▶️ 播放中' : dev.online !== false ? '在线' : '离线'}</div>
     `;
 
     item.addEventListener('click', (e) => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
       const cb = item.querySelector('input[type="checkbox"]');
       cb.checked = !cb.checked;
       if (!cb.checked) {
@@ -358,6 +373,42 @@ function renderDevices() {
     container.appendChild(item);
   });
 }
+
+window.handleSetGateway = async function(e, did) {
+  e.stopPropagation();
+  try {
+    const res = await authFetch('/api/user/speakers/gateway', {
+      method: 'POST',
+      body: JSON.stringify({ did })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      fetchDevices();
+    } else {
+      alert(json.error || '设置失败');
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+window.handleToggleIgnore = async function(e, did, isIgnored) {
+  e.stopPropagation();
+  try {
+    const res = await authFetch('/api/user/speakers/ignore', {
+      method: 'POST',
+      body: JSON.stringify({ did, isIgnored })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      fetchDevices();
+    } else {
+      alert(json.error || '操作失败');
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+};
 
 function selectAllDevices() {
   devices.forEach((d) => selectedDids.add(d.did));
