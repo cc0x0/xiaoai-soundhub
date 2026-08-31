@@ -281,10 +281,25 @@ export function createUserRouter(
       const enableChime = chimeType !== 'none';
       const publicBaseUrl = process.env.PUBLIC_BASE_URL || '';
 
+      const playingDids = targetDids.filter((d: string) => !!scheduler.getCurrentState(d));
+
       const results = await client.ttsMulti(text, targetDids, {
         chime: enableChime ? chimeType : false,
         publicBaseUrl,
       });
+
+      // 播报结束后自动断点续播音乐
+      if (playingDids.length > 0) {
+        const chimeDelayMs = enableChime ? (Number(db.getSystemSetting('chime_delay_ms', '1400')) || 1400) : 0;
+        const textDurationMs = Math.max(1500, Math.ceil(text.length * 280));
+        const resumeDelayMs = chimeDelayMs + textDurationMs + 1000;
+        console.log(`[TTS] 检测到 ${playingDids.length} 台音箱正在播放，将在播报完毕后 (${resumeDelayMs}ms) 自动恢复音乐播放...`);
+        setTimeout(() => {
+          for (const pdid of playingDids) {
+            scheduler.resume(pdid, client).catch(() => {});
+          }
+        }, resumeDelayMs);
+      }
 
       res.json({ ok: true, msg: '📢 语音播报指令已成功下发', results });
     } catch (e: any) {

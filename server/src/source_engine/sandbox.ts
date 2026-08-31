@@ -292,8 +292,94 @@ export class SourceEngine {
   }
 
   private async directSearch(keyword: string, page: number, limit: number, source: string): Promise<SearchResult> {
+    // 1. 优先使用 QQ音乐（腾讯 TME 独家全量版权与最权威热度榜）
     try {
-      // 优先从酷狗公开检索接口拉取真实歌曲
+      const qqSearchUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(keyword)}&p=${page}&n=${limit}&format=json`;
+      const resp = await axios.get(qqSearchUrl, {
+        timeout: 8000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://y.qq.com/',
+        },
+      });
+      const songList = resp.data?.data?.song?.list || [];
+      if (songList.length > 0) {
+        const list: MusicItem[] = songList.map((item: any) => {
+          const singerName = Array.isArray(item.singer) ? item.singer.map((s: any) => s.name).join(' / ') : (item.singer || '未知歌手');
+          const intervalSec = Number(item.interval) || 210;
+          return {
+            id: String(item.songmid || item.songid || ''),
+            name: String(item.songname || keyword),
+            singer: singerName,
+            albumName: String(item.albumname || ''),
+            interval: this.formatSeconds(intervalSec),
+            duration: intervalSec,
+            img: item.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${item.albummid}.jpg` : '',
+            source: 'tx',
+            raw: {
+              songmid: item.songmid,
+              id: item.songmid || item.songid,
+              name: item.songname,
+              singer: singerName,
+              album: item.albumname,
+            },
+          };
+        });
+
+        return {
+          list,
+          total: resp.data?.data?.song?.totalnum || list.length,
+          page,
+          limit,
+          source: 'tx',
+        };
+      }
+    } catch (err: any) {
+      console.warn(`[SourceEngine] QQ音乐检索直连异常:`, err.message);
+    }
+
+    // 2. 次选：酷我音乐高热度榜单检索
+    try {
+      const kwSearchUrl = `https://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(keyword)}&pn=${page - 1}&rn=${limit}&vipver=1&ft=music&encoding=utf8&rformat=json&mobi=1`;
+      const resp = await axios.get(kwSearchUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const abslist = resp.data?.abslist || [];
+      if (abslist.length > 0) {
+        const list: MusicItem[] = abslist.map((item: any) => {
+          const dur = Number(item.DURATION) || 210;
+          const songId = String(item.DC_TARGETID || item.MUSICRID?.replace('MUSIC_', '') || '');
+          return {
+            id: songId,
+            name: String(item.SONGNAME || keyword).replace(/&nbsp;/g, ' '),
+            singer: String(item.ARTIST || '未知歌手').replace(/&nbsp;/g, ' '),
+            albumName: String(item.ALBUM || '').replace(/&nbsp;/g, ' '),
+            interval: this.formatSeconds(dur),
+            duration: dur,
+            img: item.web_albumpic_short ? `https://img4.kuwo.cn/star/albumcover/${item.web_albumpic_short}` : '',
+            source: 'kw',
+            raw: {
+              songmid: songId,
+              id: songId,
+              name: item.SONGNAME,
+              singer: item.ARTIST,
+              album: item.ALBUM,
+            },
+          };
+        });
+
+        return {
+          list,
+          total: Number(resp.data?.TOTAL) || list.length,
+          page,
+          limit,
+          source: 'kw',
+        };
+      }
+    } catch (err: any) {
+      console.warn(`[SourceEngine] 酷我搜索直连异常:`, err.message);
+    }
+
+    // 3. 备选：酷狗公开检索接口
+    try {
       const kgSearchUrl = `https://complexsearch.kugou.com/v2/search/song?keyword=${encodeURIComponent(keyword)}&page=${page}&pagesize=${limit}&platform=WebFilter`;
       const resp = await axios.get(kgSearchUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
       const lists = resp.data?.data?.lists || [];
@@ -329,7 +415,7 @@ export class SourceEngine {
       console.warn(`[SourceEngine] 酷狗搜索直连异常:`, err.message);
     }
 
-    // 备用：网易云公开检索接口
+    // 4. 终极回退：网易云公开检索接口
     try {
       const wySearchUrl = `https://music.163.com/api/search/get/web?csrf_token=&hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=1&offset=${(page - 1) * limit}&total=true&limit=${limit}`;
       const resp = await axios.get(wySearchUrl, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
