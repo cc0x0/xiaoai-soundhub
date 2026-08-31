@@ -57,21 +57,28 @@ export class SourceEngine {
         updateAlert: 'updateAlert',
         request: 'request',
       },
-      request: (url: string, options: any = {}, callback?: (err: any, resp: any, body: any) => void) => {
-        const method = (options.method || 'GET').toUpperCase();
+      request: (url: string, optionsOrCb: any = {}, maybeCb?: (err: any, resp: any, body: any) => void) => {
+        let options: any = optionsOrCb;
+        let callback = maybeCb;
+        if (typeof optionsOrCb === 'function') {
+          callback = optionsOrCb;
+          options = {};
+        }
+
+        const method = (options?.method || 'GET').toUpperCase();
         const headers = {
           'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-          ...(options.headers || {}),
+          ...(options?.headers || {}),
         };
         const config: AxiosRequestConfig = {
           url,
           method,
           headers,
-          timeout: options.timeout || 15000,
-          responseType: options.responseType || 'text',
+          timeout: options?.timeout || 15000,
+          responseType: options?.responseType || 'text',
           validateStatus: () => true,
         };
-        if (options.data || options.body || options.form) {
+        if (options?.data || options?.body || options?.form) {
           config.data = options.data || options.body || options.form;
         }
 
@@ -491,8 +498,11 @@ export class SourceEngine {
       } catch {}
     }
 
-    // 3. 尝试公网多源聚合通道 (网易云、酷狗、QQ音乐等)
-    const candidateSources = songItem.source === 'wy' ? ['netease', 'kugou', 'tencent'] : ['kugou', 'netease', 'tencent'];
+    // 3. 尝试公网多源聚合通道 (根据当前曲目 source 动态优先匹配 QQ音乐/酷狗/网易云)
+    const candidateSources = songItem.source === 'tx'
+      ? ['tencent', 'kugou', 'netease']
+      : (songItem.source === 'wy' ? ['netease', 'tencent', 'kugou'] : ['kugou', 'tencent', 'netease']);
+
     for (const src of candidateSources) {
       try {
         const gdUrl = `https://music-api.gdstudio.xyz/api.php?types=url&source=${src}&id=${encodeURIComponent(songId)}&br=320`;
@@ -504,9 +514,13 @@ export class SourceEngine {
       } catch {}
     }
 
-    // 4. 终极回退：全网歌名+歌手模糊匹配直链提取 (解决李玟刀马旦、林俊杰江南等所有特殊曲目)
+    // 4. 终极回退：全网歌名+歌手模糊匹配直链提取 (按当前音源平台优先探测)
     const searchKwd = `${singer} ${songName}`.trim() || songName;
-    for (const platform of ['netease', 'kugou', 'tencent']) {
+    const platforms = songItem.source === 'tx'
+      ? ['tencent', 'kugou', 'netease']
+      : (songItem.source === 'wy' ? ['netease', 'tencent', 'kugou'] : ['kugou', 'tencent', 'netease']);
+
+    for (const platform of platforms) {
       try {
         const searchApi = `https://music-api.gdstudio.xyz/api.php?types=search&count=5&source=${platform}&pages=1&name=${encodeURIComponent(searchKwd)}`;
         const sResp = await axios.get(searchApi, { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0' } });
