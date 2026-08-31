@@ -196,11 +196,22 @@ async function bootstrap() {
         return;
       }
 
+      let client = fallbackClient;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const payload = SecurityCrypto.verifyToken<{ id: string }>(token, jwtSecret);
+        if (payload?.id) {
+          const userClient = await speakerManager.getClient(payload.id);
+          if (userClient) client = userClient;
+        }
+      }
+
       for (const targetDid of targetDids) {
         if (playlist && Array.isArray(playlist)) {
-          await scheduler.playMusicList(targetDid, playlist, index || 0);
+          await scheduler.playMusicList(targetDid, playlist, index || 0, client);
         } else if (music) {
-          await scheduler.playSingle(targetDid, music);
+          await scheduler.playSingle(targetDid, music, client);
         }
       }
 
@@ -210,77 +221,89 @@ async function bootstrap() {
     }
   });
 
-  // 播放控制接口
+  // 播放控制接口 (全屋/单设备 暂停/继续/切歌/停止)
   app.post('/api/control', async (req: Request, res: Response) => {
     try {
-      const { action, did, music, playlist, index, volume, text } = req.body;
-      const targetDid = did || process.env.XIAOI_DEFAULT_DID || '';
+      const { action, did, dids, music, playlist, index, volume, text } = req.body;
 
-      switch (action) {
-        case 'play_list':
-          if (!Array.isArray(playlist) || playlist.length === 0) {
-            res.status(400).json({ ok: false, error: 'playlist must be a non-empty array' });
-            return;
-          }
-          await scheduler.playMusicList(targetDid, playlist, index || 0);
-          res.json({ ok: true, msg: '播放列表已下发' });
-          break;
-
-        case 'play_music':
-          if (!music) {
-            res.status(400).json({ ok: false, error: 'music object is required' });
-            return;
-          }
-          await scheduler.playMusicList(targetDid, [music], 0);
-          res.json({ ok: true, msg: `正在为音箱播放: ${music.singer} - ${music.name}` });
-          break;
-
-        case 'pause':
-          await scheduler.pause(targetDid);
-          res.json({ ok: true, msg: '已暂停播放' });
-          break;
-
-        case 'resume':
-          await scheduler.resume(targetDid);
-          res.json({ ok: true, msg: '已恢复播放' });
-          break;
-
-        case 'stop':
-          await scheduler.stop(targetDid);
-          res.json({ ok: true, msg: '已停止播放并清空定时器' });
-          break;
-
-        case 'next':
-          await scheduler.next(targetDid);
-          res.json({ ok: true, msg: '已切下一首' });
-          break;
-
-        case 'prev':
-          await scheduler.prev(targetDid);
-          res.json({ ok: true, msg: '已切上一首' });
-          break;
-
-        case 'volume':
-          if (volume === undefined) {
-            res.status(400).json({ ok: false, error: 'volume is required' });
-            return;
-          }
-          await fallbackClient.setVolume(Number(volume), { did: targetDid });
-          res.json({ ok: true, msg: `音量已调整为 ${volume}%` });
-          break;
-
-        case 'tts':
-          if (!text) {
-            res.status(400).json({ ok: false, error: 'text is required' });
-            return;
-          }
-          await fallbackClient.tts(text, { did: targetDid, chime: true, publicBaseUrl });
-          res.json({ ok: true, msg: '语音已插播' });
-          break;
-
-        default:
-          res.status(400).json({ ok: false, error: `不支持的控制动作: ${action}` });
+      let client = fallbackClient;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const payload = SecurityCrypto.verifyToken<{ id: string }>(token, jwtSecret);
+        if (payload?.id) {
+          const userClient = await speakerManager.getClient(payload.id);
+          if (userClient) client = userClient;
+        }
       }
+
+      // 智能解析目标音箱：支持 dids 数组、单个 did，或正在播放的活跃音箱
+      let targetDids: string[] = [];
+      if (Array.isArray(dids) && dids.length > 0) {
+        targetDids = dids;
+      } else if (did) {
+        targetDids = [did];
+      } else {
+        targetDids = Object.keys(scheduler.getAllStates());
+        if (targetDids.length === 0 && process.env.XIAOI_DEFAULT_DID) {
+          targetDids = [process.env.XIAOI_DEFAULT_DID];
+        }
+      }
+
+      if (targetDids.length === 0) {
+        res.status(400).json({ ok: false, error: '未指定目标音箱 did 且当前无正在播放的音箱' });
+        return;
+      }
+
+      for (const targetDid of targetDids) {
+        switch (action) {
+          case 'play_list':
+            if (Array.isArray(playlist) && playlist.length > 0) {
+              await scheduler.playMusicList(targetDid, playlist, index || 0, client);
+            }
+            break;
+
+          case 'play_music':
+            if (music) {
+              await scheduler.playMusicList(targetDid, [music], 0, client);
+            }
+            break;
+
+          case 'pause':
+            await scheduler.pause(targetDid, client);
+            break;
+
+          case 'resume':
+            await scheduler.resume(targetDid, client);
+            break;
+
+          case 'stop':
+            await scheduler.stop(targetDid, client);
+            break;
+
+          case 'next':
+            await scheduler.next(targetDid, client);
+            break;
+
+          case 'prev':
+            await scheduler.prev(targetDid, client);
+            break;
+
+          case 'volume':
+            if (volume !== undefined) {
+              await client.setVolume(Number(volume), { did: targetDid });
+            }
+            break;
+
+          case 'tts':
+            if (text) {
+              await client.tts(text, { did: targetDid, chime: true, publicBaseUrl });
+            }
+            break;
+        }
+      }
+
+      res.json({ ok: true, msg: '播放控制指令已成功执行' });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message });
     }

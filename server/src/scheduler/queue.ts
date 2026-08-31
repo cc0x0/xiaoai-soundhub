@@ -11,35 +11,47 @@ import { AppDatabase } from '../db/index.js';
 
 export class PlayScheduler {
   private sourceEngine: SourceEngine;
-  private client: XiaoAiClient;
+  private fallbackClient: XiaoAiClient;
   private publicBaseUrl: string;
   private db?: AppDatabase;
   private currentPlayState: Map<string, PlayQueueItem> = new Map();
   private playlist: Map<string, MusicItem[]> = new Map();
   private currentIndex: Map<string, number> = new Map();
   private timers: Map<string, NodeJS.Timeout> = new Map();
+  private didClientMap: Map<string, XiaoAiClient> = new Map();
 
   constructor(sourceEngine: SourceEngine, client: XiaoAiClient, publicBaseUrl: string, db?: AppDatabase) {
     this.sourceEngine = sourceEngine;
-    this.client = client;
+    this.fallbackClient = client;
     this.publicBaseUrl = publicBaseUrl;
     this.db = db;
   }
 
-  public async playMusicList(did: string, list: MusicItem[], startIndex = 0): Promise<boolean> {
+  private getClient(did: string, client?: XiaoAiClient): XiaoAiClient {
+    if (client) {
+      this.didClientMap.set(did, client);
+      return client;
+    }
+    return this.didClientMap.get(did) || this.fallbackClient;
+  }
+
+  public async playMusicList(did: string, list: MusicItem[], startIndex = 0, client?: XiaoAiClient): Promise<boolean> {
     if (!list || list.length === 0) return false;
+    if (client) this.didClientMap.set(did, client);
     this.playlist.set(did, list);
     this.currentIndex.set(did, startIndex);
     return await this.playCurrentIndex(did);
   }
 
-  public async playSingle(did: string, item: MusicItem): Promise<boolean> {
+  public async playSingle(did: string, item: MusicItem, client?: XiaoAiClient): Promise<boolean> {
+    if (client) this.didClientMap.set(did, client);
     this.playlist.set(did, [item]);
     this.currentIndex.set(did, 0);
     return await this.playCurrentIndex(did);
   }
 
-  public async next(did: string): Promise<boolean> {
+  public async next(did: string, client?: XiaoAiClient): Promise<boolean> {
+    if (client) this.didClientMap.set(did, client);
     const list = this.playlist.get(did) || [];
     if (list.length === 0) return false;
     const current = this.currentIndex.get(did) || 0;
@@ -48,7 +60,8 @@ export class PlayScheduler {
     return await this.playCurrentIndex(did);
   }
 
-  public async prev(did: string): Promise<boolean> {
+  public async prev(did: string, client?: XiaoAiClient): Promise<boolean> {
+    if (client) this.didClientMap.set(did, client);
     const list = this.playlist.get(did) || [];
     if (list.length === 0) return false;
     const current = this.currentIndex.get(did) || 0;
@@ -57,25 +70,28 @@ export class PlayScheduler {
     return await this.playCurrentIndex(did);
   }
 
-  public async stop(did: string): Promise<boolean> {
+  public async stop(did: string, client?: XiaoAiClient): Promise<boolean> {
     this.clearTimer(did);
     this.currentPlayState.delete(did);
     this.playlist.delete(did);
     this.currentIndex.delete(did);
     console.log(`[PlayScheduler] 音箱 [${did}] 已彻底停止播放并清空队列与定时器`);
-    return await this.client.stop({ did });
+    const activeClient = this.getClient(did, client);
+    return await activeClient.stop({ did });
   }
 
-  public async pause(did: string): Promise<boolean> {
+  public async pause(did: string, client?: XiaoAiClient): Promise<boolean> {
     this.clearTimer(did);
     console.log(`[PlayScheduler] 音箱 [${did}] 已暂停播放并取消自动切歌定时器`);
-    return await this.client.pause({ did });
+    const activeClient = this.getClient(did, client);
+    return await activeClient.pause({ did });
   }
 
-  public async resume(did: string): Promise<boolean> {
+  public async resume(did: string, client?: XiaoAiClient): Promise<boolean> {
+    if (client) this.didClientMap.set(did, client);
     const current = this.currentPlayState.get(did);
     if (!current) return false;
-    console.log(`[PlayScheduler] 语音播报结束，自动为音箱 [${did}] 恢复音乐播放: ${current.music.singer} - ${current.music.name}`);
+    console.log(`[PlayScheduler] 为音箱 [${did}] 恢复音乐播放: ${current.music.singer} - ${current.music.name}`);
     return await this.playCurrentIndex(did);
   }
 
@@ -131,8 +147,9 @@ export class PlayScheduler {
     });
 
     // 4. 命令小爱开始播放
+    const activeClient = this.getClient(did);
     console.log(`[PlayScheduler] 下发直链至音箱 [${did}]: ${proxyStreamUrl}`);
-    const ok = await this.client.playAudio(proxyStreamUrl, { did });
+    const ok = await activeClient.playAudio(proxyStreamUrl, { did });
 
     // 5. 设置自动切歌定时器 (带硬件真实状态感知守护锁 & 动态读取 switch_buffer_ms)
     if (ok && duration > 5) {
@@ -141,7 +158,7 @@ export class PlayScheduler {
       const timer = setTimeout(async () => {
         try {
           // 守护锁：在切歌前主动探测小爱硬件当前真实状态
-          const hwStatus = await this.client.getPlayStatus(did);
+          const hwStatus = await activeClient.getPlayStatus(did);
           if (hwStatus === 'paused' || hwStatus === 'stopped' || hwStatus === 'idle') {
             console.log(`[PlayScheduler] 🛑 探测到音箱 [${did}] 当前处于 [${hwStatus}] 状态（用户已手动暂停/停止），安全取消自动切歌。`);
             this.clearTimer(did);

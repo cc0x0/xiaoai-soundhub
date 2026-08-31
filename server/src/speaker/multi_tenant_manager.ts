@@ -181,18 +181,18 @@ export class MultiTenantSpeakerManager {
       console.log(`[MultiTenant] 用户 [${userId}] 搜索音乐: ${cmd.keyword}`);
       const searchRes = await this.sourceEngine.search(cmd.keyword, 1, 20);
       if (searchRes.list.length > 0) {
-        await this.scheduler.playMusicList(did, searchRes.list, 0);
+        await this.scheduler.playMusicList(did, searchRes.list, 0, client);
       }
     } else if (cmd.type === 'stop') {
-      await this.scheduler.stop(did);
+      await this.scheduler.stop(did, client);
     } else if (cmd.type === 'pause') {
-      await this.scheduler.pause(did);
+      await this.scheduler.pause(did, client);
     } else if (cmd.type === 'resume') {
-      await this.scheduler.resume(did);
+      await this.scheduler.resume(did, client);
     } else if (cmd.type === 'next') {
-      await this.scheduler.next(did);
+      await this.scheduler.next(did, client);
     } else if (cmd.type === 'prev') {
-      await this.scheduler.prev(did);
+      await this.scheduler.prev(did, client);
     } else if (cmd.type === 'volume' && cmd.volume !== undefined) {
       await client.setVolume(cmd.volume, { did });
     }

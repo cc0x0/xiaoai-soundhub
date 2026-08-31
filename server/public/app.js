@@ -724,13 +724,30 @@ async function castSong(music) {
 // 7. 播放控制 (针对当前勾选的所有音箱)
 async function controlPlay(action) {
   const targetDids = Array.from(selectedDids);
+  if (action === 'pause') {
+    isPlaying = false;
+    const btnPlay = document.getElementById('btn-toggle-play');
+    if (btnPlay) btnPlay.textContent = '▶️';
+    showToast('⏸️ 已暂停播放', 'info', 2000);
+  } else if (action === 'resume') {
+    isPlaying = true;
+    const btnPlay = document.getElementById('btn-toggle-play');
+    if (btnPlay) btnPlay.textContent = '⏸️';
+    showToast('▶️ 已恢复播放', 'info', 2000);
+  } else if (action === 'stop') {
+    isPlaying = false;
+    const btnPlay = document.getElementById('btn-toggle-play');
+    if (btnPlay) btnPlay.textContent = '▶️';
+    showToast('⏹️ 已停止播放', 'info', 2000);
+  }
+
   try {
     await authFetch('/api/control', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, dids: targetDids }),
     });
-    setTimeout(fetchStatus, 500);
+    setTimeout(fetchStatus, 400);
   } catch (err) {
     console.error('控制失败:', err);
   }
@@ -738,13 +755,20 @@ async function controlPlay(action) {
 
 // 8. 独立控制单台指定音箱
 window.controlSingleSpeaker = async function (did, action) {
+  const dev = devices.find(d => d.did === did);
+  const devName = dev?.name || dev?.alias || did;
+  const actionTexts = { pause: '已暂停', resume: '已恢复播放', stop: '已停止', next: '已切下一首' };
+  if (actionTexts[action]) {
+    showToast(`🔊 [${devName}] ${actionTexts[action]}`, 'info', 2000);
+  }
+
   try {
     await authFetch('/api/control', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, did }),
     });
-    setTimeout(fetchStatus, 500);
+    setTimeout(fetchStatus, 400);
   } catch (err) {
     console.error('单音箱控制失败:', err);
   }
