@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
 import { SecurityCrypto } from '../security/crypto.js';
@@ -56,7 +56,7 @@ export interface SystemSettingRow {
 }
 
 export class AppDatabase {
-  private db: Database.Database;
+  private db: DatabaseSync;
 
   constructor(dbFilePath?: string) {
     const defaultPath = path.join(process.cwd(), 'data', 'soundhub.db');
@@ -67,8 +67,8 @@ export class AppDatabase {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    this.db = new Database(targetPath);
-    this.db.pragma('journal_mode = WAL');
+    this.db = new DatabaseSync(targetPath);
+    this.db.exec('PRAGMA journal_mode = WAL;');
     this.initTables();
   }
 
