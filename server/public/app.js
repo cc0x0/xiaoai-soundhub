@@ -8,6 +8,39 @@ let devices = [];
 let selectedDids = new Set();
 let isPlaying = false;
 
+// 现代 Toast 浮动通知组件
+function showToast(message, type = 'info', duration = 3000) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+
+  const icons = {
+    success: '🎉',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `toast-item toast-${type}`;
+  toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span style="flex:1;">${message}</span>`;
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+  });
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+    toast.classList.add('hide');
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+window.showToast = showToast;
+
 // 统一封装带鉴权的请求
 async function authFetch(url, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -199,13 +232,13 @@ async function saveUserSettings() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert('🎉 个人偏好设置已成功保存！');
+      showToast('🎉 个人偏好设置已成功保存！', 'success');
       window.closeUserSettingsModal();
     } else {
-      alert(json.error || '保存失败');
+      showToast(json.error || '保存失败', 'error');
     }
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, 'error');
   }
 }
 
@@ -215,7 +248,7 @@ async function submitQuickBindMi() {
   const nickname = document.getElementById('bind-quick-nickname').value.trim();
 
   if (!account || !password) {
-    alert('请填写小米账号（手机号/邮箱）和密码');
+    showToast('请填写小米账号（手机号/邮箱）和密码', 'warning');
     return;
   }
 
@@ -230,14 +263,14 @@ async function submitQuickBindMi() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert(json.msg);
+      showToast(json.msg, 'success');
       window.closeBindModal();
       fetchDevices();
     } else {
-      alert(json.error || '登录绑定失败');
+      showToast(json.error || '登录绑定失败', 'error');
     }
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, 'error');
   } finally {
     btn.disabled = false;
     btn.innerText = '⚡ 一键登录并同步音箱';
@@ -250,7 +283,7 @@ async function submitBindMi() {
   const nickname = document.getElementById('bind-mi-nickname').value.trim();
 
   if (!xiaomiUserId || !passToken) {
-    alert('请填写小米账号ID与passToken');
+    showToast('请填写小米账号ID与passToken', 'warning');
     return;
   }
 
@@ -261,14 +294,14 @@ async function submitBindMi() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert('🎉 ' + json.msg);
+      showToast('🎉 ' + json.msg, 'success');
       window.closeBindModal();
       fetchDevices();
     } else {
-      alert(json.error || '绑定失败');
+      showToast(json.error || '绑定失败', 'error');
     }
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, 'error');
   }
 }
 
@@ -281,19 +314,19 @@ async function handleUnbindMi() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert(json.msg);
+      showToast(json.msg, 'success');
       window.closeBindModal();
       fetchDevices();
     }
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, 'error');
   }
 }
 
 async function submitRedeem() {
   const code = document.getElementById('redeem-code-input').value.trim();
   if (!code) {
-    alert('请输入兑换码');
+    showToast('请输入兑换码', 'warning');
     return;
   }
 
@@ -304,14 +337,14 @@ async function submitRedeem() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert(json.msg);
+      showToast(json.msg, 'success');
       window.closeRedeemModal();
       initUserProfile();
     } else {
-      alert(json.error || '兑换失败');
+      showToast(json.error || '兑换失败', 'error');
     }
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, 'error');
   }
 }
 
@@ -526,12 +559,13 @@ window.handleSetGateway = async function(e, did) {
     });
     const json = await res.json();
     if (json.ok) {
+      showToast('已成功设为主点歌网关音箱', 'success');
       fetchDevices();
     } else {
-      alert(json.error || '设置失败');
+      showToast(json.error || '设置失败', 'error');
     }
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
   }
 };
 
@@ -544,12 +578,13 @@ window.handleToggleIgnore = async function(e, did, isIgnored) {
     });
     const json = await res.json();
     if (json.ok) {
+      showToast(isIgnored ? '已屏蔽该音箱设备' : '已取消设备屏蔽', 'info');
       fetchDevices();
     } else {
-      alert(json.error || '操作失败');
+      showToast(json.error || '操作失败', 'error');
     }
   } catch (err) {
-    alert(err.message);
+    showToast(err.message, 'error');
   }
 };
 
@@ -567,13 +602,13 @@ function deselectAllDevices() {
 async function sendTTS() {
   const text = document.getElementById('tts-input').value.trim();
   if (!text) {
-    alert('请输入播报文本');
+    showToast('请输入要播报的文本内容', 'warning');
     return;
   }
 
   const targetDids = Array.from(selectedDids);
   if (targetDids.length === 0) {
-    alert('请至少勾选一台小爱音箱');
+    showToast('请在左侧至少勾选一台小爱音箱', 'warning');
     return;
   }
 
@@ -591,12 +626,12 @@ async function sendTTS() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert('📢 语音播报指令已下发成功！');
+      showToast('📢 语音播报指令已成功下发至音箱！', 'success');
     } else {
-      alert(`播报失败: ${json.error}`);
+      showToast(`播报失败: ${json.error}`, 'error');
     }
   } catch (err) {
-    alert(`请求异常: ${err.message}`);
+    showToast(`请求异常: ${err.message}`, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = '📢 发送语音播报 (所选音箱)';
@@ -643,7 +678,7 @@ async function doSearch() {
 async function castSong(music) {
   const targetDids = Array.from(selectedDids);
   if (targetDids.length === 0) {
-    alert('请在左侧勾选要投播的小爱音箱');
+    showToast('请在左侧勾选要投播的小爱音箱', 'warning');
     return;
   }
 
@@ -659,11 +694,12 @@ async function castSong(music) {
       document.getElementById('player-artist').textContent = music.singer;
       isPlaying = true;
       document.getElementById('btn-toggle-play').textContent = '⏸️';
+      showToast(`🎵 正在为音箱投播: ${music.singer} - ${music.name}`, 'success');
     } else {
-      alert(`投播失败: ${json.error}`);
+      showToast(`投播失败: ${json.error}`, 'error');
     }
   } catch (err) {
-    alert(`投播异常: ${err.message}`);
+    showToast(`投播异常: ${err.message}`, 'error');
   }
 }
 

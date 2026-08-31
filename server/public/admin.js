@@ -3,6 +3,38 @@ if (!token) {
   window.location.href = '/login';
 }
 
+function showToast(message, type = 'info', duration = 3000) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+
+  const icons = {
+    success: '🎉',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `toast-item toast-${type}`;
+  toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span style="flex:1;">${message}</span>`;
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+  });
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+    toast.classList.add('hide');
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+window.showToast = showToast;
+
 function adminLogout() {
   localStorage.removeItem('soundhub_token');
   localStorage.removeItem('soundhub_user');
@@ -20,8 +52,8 @@ async function loadAdminOverview() {
   try {
     const res = await fetch('/api/admin/overview', { headers: { 'Authorization': 'Bearer ' + token } });
     if (res.status === 401 || res.status === 403) {
-      alert('权限不足，需要超级管理员身份');
-      window.location.href = '/app';
+      showToast('权限不足，需要超级管理员身份', 'error');
+      setTimeout(() => { window.location.href = '/app'; }, 1000);
       return;
     }
     const json = await res.json();
@@ -97,15 +129,15 @@ async function submitPlanChange() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert(json.msg);
+      showToast(json.msg, 'success');
       closePlanModal();
       loadUsers();
       loadAdminOverview();
     } else {
-      alert(json.error || '操作失败');
+      showToast(json.error || '操作失败', 'error');
     }
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, 'error');
   }
 }
 
@@ -188,13 +220,13 @@ async function saveSystemSettings() {
     });
     const json = await res.json();
     if (json.ok) {
-      alert('🎉 ' + json.msg);
+      showToast('🎉 ' + json.msg, 'success');
       loadSystemSettings();
     } else {
-      alert(json.error || '保存失败');
+      showToast(json.error || '保存失败', 'error');
     }
   } catch (e) {
-    alert(e.message);
+    showToast(e.message, 'error');
   }
 }
 

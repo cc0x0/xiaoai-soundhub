@@ -55,7 +55,10 @@ export function createUserRouter(
       }
 
       const encryptedToken = SecurityCrypto.encrypt(loginRes.passToken.trim(), securitySalt);
-      db.saveMiAccount(userId, loginRes.userId.trim(), encryptedToken, nickname || loginRes.nickname);
+      const evictedUserIds = db.saveMiAccount(userId, loginRes.userId.trim(), encryptedToken, nickname || loginRes.nickname);
+      for (const oldUid of evictedUserIds) {
+        speakerManager.invalidateClient(oldUid);
+      }
 
       speakerManager.invalidateClient(userId);
 
@@ -93,7 +96,10 @@ export function createUserRouter(
       }
 
       const encryptedToken = SecurityCrypto.encrypt(passToken.trim(), securitySalt);
-      db.saveMiAccount(userId, xiaomiUserId.trim(), encryptedToken, nickname);
+      const evictedUserIds = db.saveMiAccount(userId, xiaomiUserId.trim(), encryptedToken, nickname);
+      for (const oldUid of evictedUserIds) {
+        speakerManager.invalidateClient(oldUid);
+      }
 
       speakerManager.invalidateClient(userId);
 
@@ -250,6 +256,39 @@ export function createUserRouter(
     } else {
       res.status(400).json({ ok: false, error: '无效或已过期的卡密兑换码' });
       return;
+    }
+  });
+
+  // 12. 语音播报 / TTS 广播 (支持多音箱并发与个性化提示音)
+  router.post('/tts', async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const { text, dids, did, chime } = req.body;
+      if (!text) {
+        res.status(400).json({ ok: false, error: 'text is required' });
+        return;
+      }
+
+      const client = await speakerManager.getClient(userId);
+      if (!client) {
+        res.status(400).json({ ok: false, error: '请先绑定小米账号后进行语音播报' });
+        return;
+      }
+
+      const targetDids = Array.isArray(dids) ? dids : (did ? [did] : (dids ? [dids] : []));
+      const userSettings = db.getUserSettings(userId);
+      const chimeType = chime !== undefined ? chime : (userSettings?.default_chime || 'dingdong');
+      const enableChime = chimeType !== 'none';
+      const publicBaseUrl = process.env.PUBLIC_BASE_URL || '';
+
+      const results = await client.ttsMulti(text, targetDids, {
+        chime: enableChime ? chimeType : false,
+        publicBaseUrl,
+      });
+
+      res.json({ ok: true, msg: '📢 语音播报指令已成功下发', results });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 

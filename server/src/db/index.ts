@@ -233,9 +233,21 @@ export class AppDatabase {
     return this.db.prepare('SELECT * FROM mi_accounts').all() as unknown as MiAccountRow[];
   }
 
-  public saveMiAccount(userId: string, xiaomiUserId: string, encryptedToken: string, nickname?: string): void {
-    const id = `mi_${userId}`;
+  public saveMiAccount(userId: string, xiaomiUserId: string, encryptedToken: string, nickname?: string): string[] {
     const now = Date.now();
+    const id = `mi_${userId}`;
+
+    // 1. 查找是否有其他旧租户曾经绑定过此 xiaomi_user_id (排他性接管与旧租户解绑)
+    const oldAccounts = this.db.prepare(`
+      SELECT user_id FROM mi_accounts WHERE xiaomi_user_id = ? AND user_id != ?
+    `).all(xiaomiUserId, userId) as unknown as { user_id: string }[];
+
+    const evictedUserIds = oldAccounts.map((a) => a.user_id);
+    for (const oldUid of evictedUserIds) {
+      console.log(`[Database] 🔄 小米账号 [${xiaomiUserId}] 已被新租户 [${userId}] 独占接管，自动注销旧租户 [${oldUid}] 的绑定数据`);
+      this.deleteMiAccount(oldUid);
+    }
+
     this.db.prepare(`
       INSERT INTO mi_accounts (id, user_id, xiaomi_user_id, encrypted_pass_token, nickname, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -245,6 +257,8 @@ export class AppDatabase {
         nickname = excluded.nickname,
         updated_at = excluded.updated_at
     `).run(id, userId, xiaomiUserId, encryptedToken, nickname || '', now);
+
+    return evictedUserIds;
   }
 
   public deleteMiAccount(userId: string): void {

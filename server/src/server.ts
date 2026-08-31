@@ -152,6 +152,65 @@ async function bootstrap() {
     }
   });
 
+  // 语音播报广播接口 (支持 JWT 租户鉴权与多音箱并发)
+  app.post('/api/tts', async (req: Request, res: Response) => {
+    try {
+      const { text, dids, did, chime } = req.body;
+      if (!text) {
+        res.status(400).json({ ok: false, error: 'text is required' });
+        return;
+      }
+
+      let client = fallbackClient;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const payload = SecurityCrypto.verifyToken<{ id: string }>(token, jwtSecret);
+        if (payload?.id) {
+          const userClient = await speakerManager.getClient(payload.id);
+          if (userClient) client = userClient;
+        }
+      }
+
+      const targetDids = Array.isArray(dids) ? dids : (did ? [did] : (dids ? [dids] : []));
+      const chimeType = chime !== undefined ? chime : 'dingdong';
+      const enableChime = chimeType !== 'none';
+
+      const results = await client.ttsMulti(text, targetDids, {
+        chime: enableChime ? chimeType : false,
+        publicBaseUrl,
+      });
+
+      res.json({ ok: true, msg: '📢 语音播报指令已成功下发', results });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // 投播歌曲 / 歌单接口
+  app.post('/api/play', async (req: Request, res: Response) => {
+    try {
+      const { music, dids, did, playlist, index } = req.body;
+      const targetDids = Array.isArray(dids) ? dids : (did ? [did] : []);
+      if (targetDids.length === 0) {
+        res.status(400).json({ ok: false, error: '请指定至少一台目标音箱 did' });
+        return;
+      }
+
+      for (const targetDid of targetDids) {
+        if (playlist && Array.isArray(playlist)) {
+          await scheduler.playMusicList(targetDid, playlist, index || 0);
+        } else if (music) {
+          await scheduler.playSingle(targetDid, music);
+        }
+      }
+
+      res.json({ ok: true, msg: '🎵 歌曲已成功投播至小爱音箱' });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // 播放控制接口
   app.post('/api/control', async (req: Request, res: Response) => {
     try {
