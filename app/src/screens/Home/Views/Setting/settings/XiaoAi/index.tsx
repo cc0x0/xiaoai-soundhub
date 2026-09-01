@@ -1,24 +1,16 @@
 import { memo, useState, useEffect } from 'react'
-import { View, TextInput, TouchableOpacity, ActivityIndicator, ToastAndroid, Alert, Platform, ScrollView } from 'react-native'
+import { View, TextInput, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native'
 import Section from '../../components/Section'
 import Text from '@/components/common/Text'
 import { useTheme } from '@/store/theme/hook'
-import { createStyle } from '@/utils/tools'
-import { xiaoaiService, type XiaoAiDevice } from '@/services/xiaoaiService'
+import { createStyle, toast } from '@/utils/tools'
+import { xiaoaiService, DEFAULT_SERVER_URL, type XiaoAiDevice } from '@/services/xiaoaiService'
 import { XiaoAiTTSModal } from '@/components/XiaoAiTTSModal'
 import { XiaoAiCastModal } from '@/components/XiaoAiCastModal'
 
-const showToast = (msg: string) => {
-  if (Platform.OS === 'android') {
-    ToastAndroid.show(msg, ToastAndroid.SHORT)
-  } else {
-    Alert.alert('提示', msg)
-  }
-}
-
 export default memo(() => {
   const theme = useTheme()
-  const [serverUrl, setServerUrl] = useState('http://127.0.0.1:8989')
+  const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL)
   const [token, setToken] = useState('')
   const [devices, setDevices] = useState<XiaoAiDevice[]>([])
   const [testing, setTesting] = useState(false)
@@ -26,7 +18,7 @@ export default memo(() => {
   const [castModalVisible, setCastModalVisible] = useState(false)
 
   useEffect(() => {
-    setServerUrl(xiaoaiService.getServerUrl() || 'http://127.0.0.1:8989')
+    setServerUrl(xiaoaiService.getServerUrl() || DEFAULT_SERVER_URL)
     setToken(xiaoaiService.getToken() || '')
   }, [])
 
@@ -42,7 +34,7 @@ export default memo(() => {
 
   const handleTestConnect = async() => {
     if (!serverUrl) {
-      showToast('请输入云端服务地址')
+      toast('请输入云端服务地址')
       return
     }
     setTesting(true)
@@ -51,9 +43,9 @@ export default memo(() => {
       await xiaoaiService.setToken(token)
       const list = await xiaoaiService.getDevices(true)
       setDevices(list)
-      showToast(`连接成功！发现 ${list.length} 台小爱音箱 🎉`)
+      toast(`连接成功！发现 ${list.length} 台小爱音箱 🎉`)
     } catch (err: unknown) {
-      showToast(`连接失败: ${(err as Error).message}`)
+      toast(`连接失败: ${(err as Error).message}`)
     } finally {
       setTesting(false)
     }

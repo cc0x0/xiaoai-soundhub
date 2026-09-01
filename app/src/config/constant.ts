@@ -60,6 +60,10 @@ export const storageDataPrefix = {
   notificationTipEnable: '@notification_tip_enable',
   ignoringBatteryOptimizationTipEnable: '@ignoring_battery_optimization_tip_enable',
 
+  soundhubServerUrl: '@soundhub_server_url',
+  soundhubToken: '@soundhub_token',
+  soundhubSelectedDids: '@soundhub_selected_dids',
+
   searchHistoryList: '@search_history_list',
   listUpdateInfo: '@list_update_info',
   ignoreVersion: '@ignore_version',
