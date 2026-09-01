@@ -25,8 +25,11 @@ export interface CastMusicParams {
   raw?: any
 }
 
+/** Must match the placeholder shown in the XiaoAi settings panel. */
+export const DEFAULT_SERVER_URL = 'http://127.0.0.1:8989'
+
 class XiaoAiService {
-  private serverUrl: string = 'http://127.0.0.1:8080'
+  private serverUrl: string = DEFAULT_SERVER_URL
   private token: string = ''
   private cachedDevices: XiaoAiDevice[] = []
   private selectedDids: string[] = []
@@ -115,8 +118,14 @@ class XiaoAiService {
 
   /**
    * 发送多音箱文本语音 (TTS) 广播
+   *
+   * The server answers `{ok, msg, results}` — note `results`, not `data`.
    */
-  public async sendTTS(text: string, targetDids?: string[]): Promise<Record<string, boolean>> {
+  public async sendTTS(
+    text: string,
+    targetDids?: string[],
+    chime?: string,
+  ): Promise<Record<string, boolean>> {
     const dids = targetDids && targetDids.length > 0 ? targetDids : this.selectedDids
     if (dids.length === 0) {
       throw new Error('未选择任何小爱音箱')
@@ -125,20 +134,23 @@ class XiaoAiService {
     const response = await fetch(`${this.serverUrl}/api/tts`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ text, dids }),
+      body: JSON.stringify(chime ? { text, dids, chime } : { text, dids }),
     })
 
     const json = await response.json()
     if (json.ok) {
-      return json.data
+      return (json.results ?? {}) as Record<string, boolean>
     }
     throw new Error(json.error ? String(json.error) : '发送 TTS 失败')
   }
 
   /**
    * 投播歌曲到小爱音箱
+   *
+   * The server answers `{ok, msg}` with no payload, so this resolves to void
+   * rather than pretending to return per-device results.
    */
-  public async castSong(music: CastMusicParams, targetDids?: string[]): Promise<Record<string, boolean>> {
+  public async castSong(music: CastMusicParams, targetDids?: string[]): Promise<void> {
     const dids = targetDids && targetDids.length > 0 ? targetDids : this.selectedDids
     if (dids.length === 0) {
       throw new Error('请先选择要投播的小爱音箱')
@@ -151,25 +163,59 @@ class XiaoAiService {
     })
 
     const json = await response.json()
-    if (json.ok) {
-      return json.data
+    if (!json.ok) {
+      throw new Error(json.error ? String(json.error) : '投播歌曲失败')
     }
-    throw new Error(json.error ? String(json.error) : '投播歌曲失败')
   }
 
   /**
    * 播放控制
+   *
+   * The volume value must be sent as `volume`: the server reads that key and
+   * silently ignores anything else, so a mismatch fails without an error.
    */
-  public async control(action: 'pause' | 'resume' | 'stop' | 'next' | 'prev' | 'volume', did?: string, value?: number): Promise<boolean> {
-    const targetDid = did ?? this.selectedDids[0] ?? ''
+  public async control(
+    action: 'pause' | 'resume' | 'stop' | 'next' | 'prev' | 'volume',
+    dids?: string[],
+    volume?: number,
+  ): Promise<boolean> {
+    const targetDids = dids && dids.length > 0 ? dids : this.selectedDids
+    if (targetDids.length === 0) {
+      throw new Error('请先选择要控制的小爱音箱')
+    }
+
+    const body: Record<string, unknown> = { action, dids: targetDids }
+    if (action === 'volume') {
+      if (volume === undefined) throw new Error('未指定音量值')
+      body.volume = volume
+    }
+
     const response = await fetch(`${this.serverUrl}/api/control`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ action, did: targetDid, value }),
+      body: JSON.stringify(body),
     })
 
     const json = await response.json()
-    return !!json.ok
+    if (!json.ok) {
+      throw new Error(json.error ? String(json.error) : '控制指令下发失败')
+    }
+    return true
+  }
+
+  /** Current playback state per device, keyed by did. */
+  public async getStatus(): Promise<Record<string, {
+    music: { name: string, singer: string, source: string }
+    startTime: number
+    duration: number
+  }>> {
+    const response = await fetch(`${this.serverUrl}/api/status`, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    })
+    const json = await response.json()
+    if (json.ok) return json.data?.states ?? {}
+    throw new Error(json.error ? String(json.error) : '获取播放状态失败')
   }
 }
 

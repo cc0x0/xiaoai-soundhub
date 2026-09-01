@@ -1,4 +1,4 @@
-import { useRef, forwardRef, useImperativeHandle } from 'react'
+import { useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { View } from 'react-native'
 // import LoadingMask, { LoadingMaskType } from '@/components/common/LoadingMask'
 import List, { type ListProps, type ListType, type Status, type RowInfoType } from './List'
@@ -7,6 +7,7 @@ import ListMusicMultiAdd, { type MusicMultiAddModalType as ListAddMultiType } fr
 import ListMusicAdd, { type MusicAddModalType as ListMusicAddType } from '@/components/MusicAddModal'
 import MultipleModeBar, { type MultipleModeBarType, type SelectMode } from './MultipleModeBar'
 import { handleDislikeMusic, handleDownload, handlePlay, handlePlayLater, handleShare, handleShowMusicSourceDetail } from './listAction'
+import { XiaoAiCastModal } from '@/components/XiaoAiCastModal'
 import { createStyle } from '@/utils/tools'
 
 export interface OnlineListProps {
@@ -32,6 +33,7 @@ export default forwardRef<OnlineListType, OnlineListProps>(({
   checkHomePagerIdle = false,
   rowType,
 }, ref) => {
+  const [castMusicInfo, setCastMusicInfo] = useState<LX.Music.MusicInfoOnline | null>(null)
   const listRef = useRef<ListType>(null)
   const multipleModeBarRef = useRef<MultipleModeBarType>(null)
   const listMusicAddRef = useRef<ListMusicAddType>(null)
@@ -112,6 +114,12 @@ export default forwardRef<OnlineListType, OnlineListProps>(({
         onAdd={handleAddMusic}
         onMusicSourceDetail={info => { void handleShowMusicSourceDetail(info.musicInfo) }}
         onDislikeMusic={info => { void handleDislikeMusic(info.musicInfo) }}
+        onCastToXiaoAi={info => { setCastMusicInfo(info.musicInfo) }}
+      />
+      <XiaoAiCastModal
+        visible={castMusicInfo != null}
+        musicInfo={castMusicInfo}
+        onClose={() => { setCastMusicInfo(null) }}
       />
       {/* <LoadingMask ref={loadingMaskRef} /> */}
     </View>
