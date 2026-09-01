@@ -28,7 +28,7 @@
 | `src/components/OnlineList/ListMenu.tsx` | **本轮** · 长按菜单加「投播到小爱音箱」 |
 | `src/components/OnlineList/index.tsx` | **本轮** · 挂载投播弹窗并接线 |
 | `src/screens/Home/Views/Setting/Main.tsx` + `Vertical/Main.tsx` | 注册 `xiaoai` 设置分屏 |
-| `src/config/constant.ts` | **本轮** · `storageDataPrefix` 登记 3 个小爱 storage key |
+| `src/config/constant.ts` | `storageDataPrefix` 登记 3 个小爱 storage key（`constant.ts:63-65`） |
 | `src/lang/{zh-cn,zh-tw,en-us}.json` | `setting_xiaoai` + **本轮** `xiaoai_cast_to` |
 
 ### 服务端
@@ -94,9 +94,13 @@ tx/kg/mg 的直链需 VIP，由服务端的「精确同曲跨源兜底」接管�
 
 ### 两处规范偏离
 
-**样式绕过 `createStyle`**——这不只是视觉问题。`createStyle`（`utils/tools.ts:521`）会把尺寸过 `scaleSizeW/H`、把 `fontSize`/`lineHeight` 过 `setSpText`，而 `setSpText`（`utils/pixelRatio.ts:53`）乘以 `global.lx.fontSize`，即**用户的字体大小设置**。两个 Modal 用 RN 原生 `StyleSheet.create`，等于无视用户字体设置与设备 DPI 缩放——App 其余部分都会响应。已改为 `createStyle`。
+### 三处规范偏离（均已修）
 
-**storage key 未登记**——`xiaoaiService.ts` 用裸键 `soundhub_server_url` 等，既无 `@` 前缀也未登记在 `storageDataPrefix`（`config/constant.ts:40`）。已登记为 `@soundhub_server_url` 等，并保留读旧裸键的回退（照 `getPlayInfo` 的既有迁移写法），避免抹掉已有用户的服务地址、token 与音箱选择。
+**样式绕过 `createStyle`**——这不是视觉问题，是功能缺陷。`createStyle`（`utils/tools.ts:521`）把尺寸过 `scaleSizeW/H`、把 `fontSize`/`lineHeight` 过 `setSpText`，而 `setSpText`（`utils/pixelRatio.ts:53`）乘以 `global.lx.fontSize`，即**用户在设置里调的字体大小**。两个 Modal 原本用 RN 原生 `StyleSheet.create`，里面的 `fontSize: 18`、`padding: 20` 全是死值：用户调大字号，小爱界面不变而 App 其余部分变大，界面错乱；跨屏幕密度时间距也不成比例。而同功能的设置页却用的是 `createStyle`，两半标准不一致。已统一。
+
+**Toast 重复实现且丢失偏移**——三个文件各自写了一份私有 `showToast` 直调 `ToastAndroid.show`，绕过项目统一的 `toast()`（`utils/tools.ts:112`）。`toast()` 带 **120px 偏移**（`tools.ts:137`），正是为了不被底部播放条挡住；私有版本没有，提示会被遮。其 iOS 分支还把「提示」硬编码为中文。项目主目标是 Android，`toast()` 无需平台分支。三处已全部删除并改用 `toast()`。
+
+**storage key 未登记**——`xiaoaiService.ts` 用裸键 `soundhub_server_url` 等，既无 `@` 前缀也未登记在 `storageDataPrefix`（`config/constant.ts:40`）。已登记为 `@soundhub_server_url` 等（`constant.ts:63-65`）。直接改名会让已有用户丢失服务地址、token 与音箱选择，故 `init()` **回退读旧裸键并写回新键**（照 `getPlayInfo` 的既有迁移写法）。设置页的服务地址默认值也改为引用 `DEFAULT_SERVER_URL`，避免两处再次漂移。
 
 ---
 
@@ -160,7 +164,9 @@ tx/kg/mg 的直链需 VIP，由服务端的「精确同曲跨源兜底」接管�
 
 **样式**一律用 `createStyle`，不用 `StyleSheet.create`。
 
-**待办的规范债**：小爱相关文案大量硬编码中文，未走 i18n；Toast 用 `ToastAndroid` + `Alert` 而非项目统一组件。建议等新页面（设备 Tab、播报页）落地后一次性统一整理，比现在零散改动更省事。
+**Toast / 对话框**用 `utils/tools.ts` 的函数，不用组件也不用裸 `ToastAndroid`：`toast(msg, duration?, position?)`、`confirmDialog({...}): Promise<boolean>`、`tipDialog({...}): Promise<void>`。后两者默认按钮文案取自 i18n，可直接 `await`。注意 `src/navigation/components/Toast.js` 是上游遗留死代码（写死了英文示例文案、引用已废弃的 `useGetter`），不要用。
+
+**待办的规范债**：小爱相关文案仍大量硬编码中文，未走 i18n。建议等新页面（设备 Tab、播报页）落地后一次性整理，比现在零散改动省事。
 
 ---
 
