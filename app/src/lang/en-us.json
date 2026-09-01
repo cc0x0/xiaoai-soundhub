@@ -405,6 +405,7 @@
   "setting_sync_status_enabled": "connected",
   "setting_theme": "Theme",
   "setting_xiaoai": "XiaoAi SoundHub",
+  "xiaoai_cast_to": "Cast to XiaoAi speaker",
   "setting_version": "Version",
   "setting_version_show_ver_modal": "Open Update Window 🚀",
   "share_card_title_music": "Share \"{name}\" to...",

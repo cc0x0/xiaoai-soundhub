@@ -19,6 +19,8 @@ export interface ListMenuProps {
   onCopyName: (selectInfo: SelectInfo) => void
   onMusicSourceDetail: (selectInfo: SelectInfo) => void
   onDislikeMusic: (selectInfo: SelectInfo) => void
+  /** Cast this track to the XiaoAi speakers via the SoundHub server. */
+  onCastToXiaoAi: (selectInfo: SelectInfo) => void
 }
 export interface ListMenuType {
   show: (selectInfo: SelectInfo, position: Position) => void
@@ -52,6 +54,7 @@ export default forwardRef<ListMenuType, ListMenuProps>((props: ListMenuProps, re
   const menus = useMemo(() => {
     return [
       { action: 'play', label: t('play') },
+      { action: 'castToXiaoAi', label: t('xiaoai_cast_to') },
       { action: 'playLater', label: t('play_later') },
       { action: 'download', label: t('nav_download') },
       { action: 'add', label: t('add_to') },
@@ -66,6 +69,9 @@ export default forwardRef<ListMenuType, ListMenuProps>((props: ListMenuProps, re
     switch (action) {
       case 'play':
         props.onPlay(selectInfo)
+        break
+      case 'castToXiaoAi':
+        props.onCastToXiaoAi(selectInfo)
         break
       case 'playLater':
         props.onPlayLater(selectInfo)

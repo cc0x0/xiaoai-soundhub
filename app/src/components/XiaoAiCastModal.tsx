@@ -15,21 +15,36 @@ import {
   Alert,
   Platform,
 } from 'react-native'
-import { xiaoaiService, type XiaoAiDevice, type CastMusicParams } from '@/services/xiaoaiService'
+import { xiaoaiService, type XiaoAiDevice } from '@/services/xiaoaiService'
+import { normalizeMusicInfo, toCastParams } from '@/services/soundhubMapper'
+import { usePlayMusicInfo } from '@/store/player/hook'
 import { useTheme } from '@/store/theme/hook'
 
 interface Props {
   visible: boolean
   onClose: () => void
-  currentMusic?: CastMusicParams
+  /**
+   * The track to cast, as lx's own MusicInfo. Optional: when omitted the modal
+   * falls back to whatever is currently playing, so opening it from a toolbar
+   * (which has no track context) still does something useful.
+   */
+  musicInfo?: LX.Music.MusicInfo | null
 }
 
-export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, currentMusic }) => {
+export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }) => {
   const theme = useTheme()
+  const playMusicInfo = usePlayMusicInfo()
   const [devices, setDevices] = useState<XiaoAiDevice[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [selectedDids, setSelectedDids] = useState<string[]>([])
   const [casting, setCasting] = useState<boolean>(false)
+
+  // An explicitly passed track wins; otherwise cast what is playing now. The
+  // player's current item may be a download task wrapping the real track.
+  const targetMusic = normalizeMusicInfo(musicInfo ?? playMusicInfo.musicInfo) as
+    | LX.Music.MusicInfo
+    | null
+  const mapped = targetMusic ? toCastParams(targetMusic) : null
 
   const loadDevices = useCallback(async() => {
     setLoading(true)
@@ -81,8 +96,12 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, currentMusi
   }
 
   const handleCast = async() => {
-    if (!currentMusic) {
-      showToast('当前没有选中可投播的歌曲')
+    if (!targetMusic) {
+      showToast('当前没有可投播的歌曲，请先播放或选中一首')
+      return
+    }
+    if (!mapped?.ok || !mapped.music) {
+      showToast(mapped?.error ?? '该歌曲无法投播')
       return
     }
     if (selectedDids.length === 0) {
@@ -92,7 +111,7 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, currentMusi
 
     setCasting(true)
     try {
-      await xiaoaiService.castSong(currentMusic, selectedDids)
+      await xiaoaiService.castSong(mapped.music, selectedDids)
       showToast(`已成功投播至 ${selectedDids.length} 台小爱音箱 🎵`)
       onClose()
     } catch (err: unknown) {
@@ -113,16 +132,29 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, currentMusi
             </TouchableOpacity>
           </View>
 
-          {currentMusic && (
-            <View style={[styles.musicCard, { backgroundColor: theme['c-200'] }]}>
-              <Text style={[styles.musicTitle, { color: theme['c-font'] }]} numberOfLines={1}>
-                {currentMusic.name}
-              </Text>
-              <Text style={[styles.musicArtist, { color: theme['c-font-label'] }]} numberOfLines={1}>
-                {currentMusic.singer} • {currentMusic.source.toUpperCase()}
-              </Text>
-            </View>
-          )}
+          {targetMusic
+            ? (
+                <View style={[styles.musicCard, { backgroundColor: theme['c-200'] }]}>
+                  <Text style={[styles.musicTitle, { color: theme['c-font'] }]} numberOfLines={1}>
+                    {targetMusic.name}
+                  </Text>
+                  <Text style={[styles.musicArtist, { color: theme['c-font-label'] }]} numberOfLines={1}>
+                    {targetMusic.singer} • {String(targetMusic.source).toUpperCase()}
+                  </Text>
+                  {!mapped?.ok && (
+                    <Text style={[styles.musicWarn, { color: theme['c-primary'] }]} numberOfLines={2}>
+                      ⚠️ {mapped?.error}
+                    </Text>
+                  )}
+                </View>
+              )
+            : (
+                <View style={[styles.musicCard, { backgroundColor: theme['c-200'] }]}>
+                  <Text style={[styles.musicArtist, { color: theme['c-font-label'] }]}>
+                    当前没有可投播的歌曲，请先播放一首，或在搜索结果中点投播
+                  </Text>
+                </View>
+              )}
 
           <View style={styles.deviceHeader}>
             <Text style={[styles.subTitle, { color: theme['c-font-label'] }]}>
@@ -177,9 +209,13 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, currentMusi
           )}
 
           <TouchableOpacity
-            style={[styles.castBtn, { backgroundColor: theme['c-primary'] }]}
+            style={[
+              styles.castBtn,
+              { backgroundColor: theme['c-primary'] },
+              (casting || !mapped?.ok) && styles.castBtnDisabled,
+            ]}
             onPress={handleCast}
-            disabled={casting}
+            disabled={casting || !mapped?.ok}
           >
             {casting ? (
               <ActivityIndicator color="#fff" />
@@ -231,6 +267,11 @@ const styles = StyleSheet.create({
   musicArtist: {
     fontSize: 12,
     marginTop: 2,
+  },
+  musicWarn: {
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: '600',
   },
   deviceHeader: {
     flexDirection: 'row',
@@ -293,6 +334,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     marginTop: 14,
+  },
+  castBtnDisabled: {
+    opacity: 0.45,
   },
   castBtnText: {
     color: '#fff',
