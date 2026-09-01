@@ -19,6 +19,8 @@ export class PlayScheduler {
   private currentIndex: Map<string, number> = new Map();
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private didClientMap: Map<string, XiaoAiClient> = new Map();
+  /** Preferred playback quality per device, from the owning tenant's settings. */
+  private didQuality: Map<string, string> = new Map();
 
   constructor(sourceEngine: SourceEngine, client: XiaoAiClient, publicBaseUrl: string, db?: AppDatabase) {
     this.sourceEngine = sourceEngine;
@@ -35,16 +37,29 @@ export class PlayScheduler {
     return this.didClientMap.get(did) || this.fallbackClient;
   }
 
-  public async playMusicList(did: string, list: MusicItem[], startIndex = 0, client?: XiaoAiClient): Promise<boolean> {
+  public async playMusicList(
+    did: string,
+    list: MusicItem[],
+    startIndex = 0,
+    client?: XiaoAiClient,
+    quality?: string
+  ): Promise<boolean> {
     if (!list || list.length === 0) return false;
     if (client) this.didClientMap.set(did, client);
+    if (quality) this.didQuality.set(did, quality);
     this.playlist.set(did, list);
     this.currentIndex.set(did, startIndex);
     return await this.playCurrentIndex(did);
   }
 
-  public async playSingle(did: string, item: MusicItem, client?: XiaoAiClient): Promise<boolean> {
+  public async playSingle(
+    did: string,
+    item: MusicItem,
+    client?: XiaoAiClient,
+    quality?: string
+  ): Promise<boolean> {
     if (client) this.didClientMap.set(did, client);
+    if (quality) this.didQuality.set(did, quality);
     this.playlist.set(did, [item]);
     this.currentIndex.set(did, 0);
     return await this.playCurrentIndex(did);
@@ -124,12 +139,17 @@ export class PlayScheduler {
     const music = list[idx];
     if (!music) return false;
 
-    console.log(`[PlayScheduler] 音箱 [${did}] 开始解析歌曲: ${music.singer} - ${music.name}`);
+    console.log(
+      `[PlayScheduler] 音箱 [${did}] 开始解析歌曲: ${music.singer} - ${music.name} [音源: ${music.source}]`
+    );
 
-    // 1. 获取音源直链
-    const urlRes = await this.sourceEngine.getMusicUrl(music, '320k');
+    // 1. 获取音源直链（严格沿用该曲目自身所属音源，不擅自换源）
+    const quality = this.didQuality.get(did) || '320k';
+    const allowCrossSource =
+      this.db?.getSystemSetting('allow_cross_source_fallback', 'false') === 'true';
+    const urlRes = await this.sourceEngine.getMusicUrl(music, { quality, allowCrossSource });
     if (!urlRes || !urlRes.url) {
-      console.warn(`[PlayScheduler] 无法获取歌曲播放直链: ${music.name}`);
+      console.warn(`[PlayScheduler] 无法获取歌曲播放直链: ${music.name} [音源: ${music.source}]`);
       return false;
     }
 

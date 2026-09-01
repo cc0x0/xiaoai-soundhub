@@ -3,10 +3,77 @@ if (!authToken) {
   window.location.href = '/login';
 }
 
+const STORAGE_KEYS = {
+  selectedDids: 'soundhub_selected_dids',
+  searchSource: 'soundhub_search_source',
+};
+
 let currentUser = JSON.parse(localStorage.getItem('soundhub_user') || '{}');
 let devices = [];
-let selectedDids = new Set();
+let selectedDids = new Set(loadSelectedDids());
 let isPlaying = false;
+/** Null until /api/sources answers; the server decides the initial value. */
+let activeSearchSource = localStorage.getItem(STORAGE_KEYS.searchSource) || null;
+let availableSources = [];
+/** True once the user has an explicit device selection worth restoring. */
+let hasStoredSelection = selectedDids.size > 0;
+
+// ===== 本地偏好持久化 =====
+function loadSelectedDids() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.selectedDids);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((d) => typeof d === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSelectedDids() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.selectedDids, JSON.stringify(Array.from(selectedDids)));
+  } catch {
+    // localStorage may be unavailable (private mode); selection stays in-memory
+  }
+}
+
+// ===== Loading 状态基建 =====
+
+/**
+ * Put a button into a busy state for the duration of an async action, so every
+ * click gives immediate feedback and cannot be fired twice.
+ */
+async function withButtonLoading(button, label, task) {
+  const el = typeof button === 'string' ? document.getElementById(button) : button;
+  if (!el) return await task();
+
+  const originalHtml = el.innerHTML;
+  const wasDisabled = el.disabled;
+  el.disabled = true;
+  el.classList.add('is-loading');
+  el.innerHTML = `<span class="btn-spinner" aria-hidden="true"></span><span>${label || '处理中...'}</span>`;
+
+  try {
+    return await task();
+  } finally {
+    el.disabled = wasDisabled;
+    el.classList.remove('is-loading');
+    el.innerHTML = originalHtml;
+  }
+}
+
+/** Render a skeleton placeholder list while a panel is loading. */
+function renderSkeleton(container, rows = 3) {
+  const el = typeof container === 'string' ? document.getElementById(container) : container;
+  if (!el) return;
+  el.innerHTML = Array.from({ length: rows })
+    .map(() => '<div class="skeleton-row"><div class="skeleton-line long"></div><div class="skeleton-line short"></div></div>')
+    .join('');
+}
+
+function setGlobalBusy(isBusy) {
+  document.body.classList.toggle('app-busy', !!isBusy);
+}
 
 // 现代 Toast 浮动通知组件
 function showToast(message, type = 'info', duration = 3000) {
@@ -60,14 +127,84 @@ async function authFetch(url, options = {}) {
 
 // 1. 初始化
 document.addEventListener('DOMContentLoaded', async () => {
-  await initUserProfile();
-  fetchDevices();
-  fetchStatus();
   bindEvents();
+  await initUserProfile();
+  await Promise.all([fetchSources(), fetchDevices()]);
+  fetchStatus();
 
   // 定时拉取播放状态
   setInterval(fetchStatus, 4000);
 });
+
+// ===== 音源渠道选择器 =====
+
+/** Load the available source channels and render the picker. */
+async function fetchSources() {
+  const tabs = document.getElementById('source-tabs');
+  try {
+    const res = await authFetch('/api/sources');
+    const json = await res.json();
+    if (!json.ok || !json.data) throw new Error('音源列表加载失败');
+
+    const { aggregate, platforms, current } = json.data;
+    availableSources = [aggregate, ...platforms];
+
+    // A stored choice wins, so a reload keeps the channel the user picked.
+    const known = availableSources.some((s) => s.id === activeSearchSource);
+    if (!known) activeSearchSource = current || aggregate.id;
+
+    renderSourceTabs();
+  } catch (err) {
+    if (tabs) {
+      tabs.innerHTML = `<span class="source-tab-error">音源列表加载失败: ${escapeHtml(err.message)}</span>`;
+    }
+  }
+}
+
+const SOURCE_ICONS = { all: '🔀', kw: '🎵', tx: '🐧', kg: '🎤', mg: '📻', wy: '☁️' };
+
+function renderSourceTabs() {
+  const tabs = document.getElementById('source-tabs');
+  if (!tabs) return;
+
+  tabs.innerHTML = availableSources
+    .map((source) => {
+      const isActive = source.id === activeSearchSource;
+      return `
+        <button type="button"
+                class="source-tab ${isActive ? 'active' : ''}"
+                data-source="${escapeHtml(source.id)}"
+                aria-pressed="${isActive}">
+          <span class="source-tab-icon">${SOURCE_ICONS[source.id] || '🎼'}</span>
+          <span>${escapeHtml(source.name)}</span>
+        </button>
+      `;
+    })
+    .join('');
+
+  tabs.querySelectorAll('.source-tab').forEach((btn) => {
+    btn.addEventListener('click', () => selectSearchSource(btn.getAttribute('data-source')));
+  });
+}
+
+/** Switch channel, remember it, and re-run the current query. */
+function selectSearchSource(sourceId) {
+  if (!sourceId || sourceId === activeSearchSource) return;
+  activeSearchSource = sourceId;
+  try {
+    localStorage.setItem(STORAGE_KEYS.searchSource, sourceId);
+  } catch {
+    // ignore storage failures
+  }
+  renderSourceTabs();
+
+  const name = availableSources.find((s) => s.id === sourceId)?.name || sourceId;
+  showToast(`已切换搜索音源: ${name}`, 'info', 2000);
+
+  if (document.getElementById('search-input')?.value.trim()) {
+    doSearch();
+  }
+}
 
 async function initUserProfile() {
   try {
@@ -96,7 +233,9 @@ async function initUserProfile() {
 }
 
 function bindEvents() {
-  document.getElementById('btn-refresh-devices')?.addEventListener('click', fetchDevices);
+  document.getElementById('btn-refresh-devices')?.addEventListener('click', () =>
+    withButtonLoading('btn-refresh-devices', '同步中', fetchDevices)
+  );
   document.getElementById('btn-select-all')?.addEventListener('click', selectAllDevices);
   document.getElementById('btn-deselect-all')?.addEventListener('click', deselectAllDevices);
   document.getElementById('btn-send-tts')?.addEventListener('click', sendTTS);
@@ -204,6 +343,9 @@ async function loadUserSettings() {
 
       const chimeSelect = document.getElementById('user-pref-chime');
       if (chimeSelect && s.default_chime) chimeSelect.value = s.default_chime;
+
+      const platformSelect = document.getElementById('user-pref-search-platform');
+      if (platformSelect) platformSelect.value = s.search_platform || 'all';
     }
   } catch (e) {
     console.error('Load user settings failed:', e);
@@ -215,31 +357,46 @@ async function saveUserSettings() {
   const stopRaw = document.getElementById('user-pref-stop-words').value.trim();
   const preferred_quality = document.getElementById('user-pref-quality').value;
   const default_chime = document.getElementById('user-pref-chime').value;
+  const search_platform = document.getElementById('user-pref-search-platform')?.value || 'all';
 
   const custom_prefixes = prefRaw ? prefRaw.split(/[,，\s]+/).filter(Boolean) : [];
   const custom_stop_keywords = stopRaw ? stopRaw.split(/[,，\s]+/).filter(Boolean) : [];
 
-  try {
-    const res = await authFetch('/api/user/settings', {
-      method: 'POST',
-      body: JSON.stringify({
-        custom_prefixes,
-        custom_stop_keywords,
-        preferred_quality,
-        default_chime,
-        enable_tts_chime: default_chime !== 'none' ? 1 : 0
-      })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast('🎉 个人偏好设置已成功保存！', 'success');
-      window.closeUserSettingsModal();
-    } else {
-      showToast(json.error || '保存失败', 'error');
+  await withButtonLoading('btn-save-user-settings', '正在保存', async () => {
+    try {
+      const res = await authFetch('/api/user/settings', {
+        method: 'POST',
+        body: JSON.stringify({
+          custom_prefixes,
+          custom_stop_keywords,
+          preferred_quality,
+          default_chime,
+          search_platform,
+          enable_tts_chime: default_chime !== 'none' ? 1 : 0
+        })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast('🎉 个人偏好设置已保存，语音点歌将使用新音源', 'success');
+        window.closeUserSettingsModal();
+
+        // Keep the web picker aligned with the newly saved voice-search source.
+        if (search_platform !== activeSearchSource) {
+          activeSearchSource = search_platform;
+          try {
+            localStorage.setItem(STORAGE_KEYS.searchSource, search_platform);
+          } catch {
+            // ignore storage failures
+          }
+          renderSourceTabs();
+        }
+      } else {
+        showToast(json.error || '保存失败', 'error');
+      }
+    } catch (e) {
+      showToast(e.message, 'error');
     }
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+  });
 }
 
 async function submitQuickBindMi() {
@@ -252,29 +409,24 @@ async function submitQuickBindMi() {
     return;
   }
 
-  const btn = document.getElementById('btn-submit-quick-bind');
-  btn.disabled = true;
-  btn.innerText = '正在直连小米官方登录中...';
-
-  try {
-    const res = await authFetch('/api/user/account/login-bind', {
-      method: 'POST',
-      body: JSON.stringify({ account, password, nickname })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast(json.msg, 'success');
-      window.closeBindModal();
-      fetchDevices();
-    } else {
-      showToast(json.error || '登录绑定失败', 'error');
+  await withButtonLoading('btn-submit-quick-bind', '正在直连小米登录', async () => {
+    try {
+      const res = await authFetch('/api/user/account/login-bind', {
+        method: 'POST',
+        body: JSON.stringify({ account, password, nickname })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(json.msg, 'success');
+        window.closeBindModal();
+        fetchDevices();
+      } else {
+        showToast(json.error || '登录绑定失败', 'error');
+      }
+    } catch (e) {
+      showToast(e.message, 'error');
     }
-  } catch (e) {
-    showToast(e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerText = '⚡ 一键登录并同步音箱';
-  }
+  });
 }
 
 async function submitBindMi() {
@@ -287,27 +439,30 @@ async function submitBindMi() {
     return;
   }
 
-  try {
-    const res = await authFetch('/api/user/account', {
-      method: 'POST',
-      body: JSON.stringify({ xiaomiUserId, passToken, nickname })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast('🎉 ' + json.msg, 'success');
-      window.closeBindModal();
-      fetchDevices();
-    } else {
-      showToast(json.error || '绑定失败', 'error');
+  await withButtonLoading('btn-submit-bind', '正在保存并同步', async () => {
+    try {
+      const res = await authFetch('/api/user/account', {
+        method: 'POST',
+        body: JSON.stringify({ xiaomiUserId, passToken, nickname })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast('🎉 ' + json.msg, 'success');
+        window.closeBindModal();
+        fetchDevices();
+      } else {
+        showToast(json.error || '绑定失败', 'error');
+      }
+    } catch (e) {
+      showToast(e.message, 'error');
     }
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+  });
 }
 
 async function handleUnbindMi() {
   if (!confirm('确定要解绑当前小米账号并彻底销毁凭证吗？')) return;
 
+  setGlobalBusy(true);
   try {
     const res = await authFetch('/api/user/account', {
       method: 'DELETE'
@@ -320,6 +475,8 @@ async function handleUnbindMi() {
     }
   } catch (e) {
     showToast(e.message, 'error');
+  } finally {
+    setGlobalBusy(false);
   }
 }
 
@@ -330,22 +487,24 @@ async function submitRedeem() {
     return;
   }
 
-  try {
-    const res = await authFetch('/api/user/redeem', {
-      method: 'POST',
-      body: JSON.stringify({ code })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast(json.msg, 'success');
-      window.closeRedeemModal();
-      initUserProfile();
-    } else {
-      showToast(json.error || '兑换失败', 'error');
+  await withButtonLoading('btn-submit-redeem', '正在校验兑换码', async () => {
+    try {
+      const res = await authFetch('/api/user/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(json.msg, 'success');
+        window.closeRedeemModal();
+        initUserProfile();
+      } else {
+        showToast(json.error || '兑换失败', 'error');
+      }
+    } catch (e) {
+      showToast(e.message, 'error');
     }
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+  });
 }
 
 window.handleUnbindMi = handleUnbindMi;
@@ -473,7 +632,7 @@ function escapeHtml(str) {
 // 3. 拉取设备列表
 async function fetchDevices() {
   const container = document.getElementById('device-list');
-  container.innerHTML = '<div class="empty-hint">正在拉取设备列表...</div>';
+  renderSkeleton(container, 3);
 
   try {
     const res = await authFetch('/api/user/speakers');
@@ -484,20 +643,33 @@ async function fetchDevices() {
       document.getElementById('device-count').textContent = devices.length;
 
       if (devices.length === 0) {
-        container.innerHTML = '<div class="empty-hint">暂未发现音箱，请点击左上角「绑定小米账号」同步设备</div>';
+        container.innerHTML =
+          '<div class="empty-hint"><div class="empty-hint-icon">📻</div><div>暂未发现音箱</div><div class="empty-hint-sub">点击右上角「绑定米家」同步设备</div></div>';
         return;
       }
 
-      // 默认全选未屏蔽的设备
-      devices.forEach((d) => {
-        if (!d.is_ignored) selectedDids.add(d.did);
-      });
+      const knownDids = new Set(devices.map((d) => d.did));
+      // Drop stored dids whose speaker is gone, so stale ids never linger.
+      for (const did of Array.from(selectedDids)) {
+        if (!knownDids.has(did)) selectedDids.delete(did);
+      }
+
+      // First visit only: preselect every non-ignored speaker. Afterwards the
+      // user's own selection is authoritative — including an empty one.
+      if (!hasStoredSelection) {
+        devices.forEach((d) => {
+          if (!d.is_ignored) selectedDids.add(d.did);
+        });
+        hasStoredSelection = true;
+      }
+
+      persistSelectedDids();
       renderDevices();
     } else {
-      container.innerHTML = `<div class="empty-hint">加载失败: ${json.error || '未授权或连接失败'}</div>`;
+      container.innerHTML = `<div class="empty-hint">加载失败: ${escapeHtml(json.error || '未授权或连接失败')}</div>`;
     }
   } catch (err) {
-    container.innerHTML = `<div class="empty-hint">请求失败: ${err.message}</div>`;
+    container.innerHTML = `<div class="empty-hint">请求失败: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -540,79 +712,96 @@ function renderDevices() {
       <div class="device-status-tag ${isDevicePlaying ? 'playing' : ''}">${isDevicePlaying ? '▶️ 播放中' : dev.online !== false ? '在线' : '离线'}</div>
     `;
 
+    const applySelection = (checked) => {
+      if (checked) {
+        selectedDids.add(dev.did);
+        item.classList.add('selected');
+      } else {
+        selectedDids.delete(dev.did);
+        item.classList.remove('selected');
+      }
+      persistSelectedDids();
+      updateSelectionSummary();
+    };
+
     item.addEventListener('click', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
       const cb = item.querySelector('input[type="checkbox"]');
       cb.checked = !cb.checked;
-      if (!cb.checked) {
-        selectedDids.delete(dev.did);
-        item.classList.remove('selected');
-      } else {
-        selectedDids.add(dev.did);
-        item.classList.add('selected');
-      }
+      applySelection(cb.checked);
     });
 
     const checkbox = item.querySelector('input[type="checkbox"]');
-    checkbox.addEventListener('change', (e) => {
-      if (!e.target.checked) {
-        selectedDids.delete(dev.did);
-        item.classList.remove('selected');
-      } else {
-        selectedDids.add(dev.did);
-        item.classList.add('selected');
-      }
-    });
+    checkbox.addEventListener('change', (e) => applySelection(e.target.checked));
 
     container.appendChild(item);
   });
+
+  updateSelectionSummary();
+}
+
+/** Keep the "n / m selected" hint in sync with the checkboxes. */
+function updateSelectionSummary() {
+  const el = document.getElementById('selection-summary');
+  if (!el) return;
+  const total = devices.length;
+  const picked = devices.filter((d) => selectedDids.has(d.did)).length;
+  el.textContent = total === 0 ? '' : `已选 ${picked} / ${total}`;
+  el.className = picked === 0 ? 'selection-summary is-empty' : 'selection-summary';
 }
 
 window.handleSetGateway = async function(e, did) {
   e.stopPropagation();
-  try {
-    const res = await authFetch('/api/user/speakers/gateway', {
-      method: 'POST',
-      body: JSON.stringify({ did })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast('已成功设为主点歌网关音箱', 'success');
-      fetchDevices();
-    } else {
-      showToast(json.error || '设置失败', 'error');
+  await withButtonLoading(e.currentTarget, '设置中', async () => {
+    try {
+      const res = await authFetch('/api/user/speakers/gateway', {
+        method: 'POST',
+        body: JSON.stringify({ did })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast('已成功设为主点歌网关音箱', 'success');
+        await fetchDevices();
+      } else {
+        showToast(json.error || '设置失败', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
     }
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
+  });
 };
 
 window.handleToggleIgnore = async function(e, did, isIgnored) {
   e.stopPropagation();
-  try {
-    const res = await authFetch('/api/user/speakers/ignore', {
-      method: 'POST',
-      body: JSON.stringify({ did, isIgnored })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast(isIgnored ? '已屏蔽该音箱设备' : '已取消设备屏蔽', 'info');
-      fetchDevices();
-    } else {
-      showToast(json.error || '操作失败', 'error');
+  await withButtonLoading(e.currentTarget, '处理中', async () => {
+    try {
+      const res = await authFetch('/api/user/speakers/ignore', {
+        method: 'POST',
+        body: JSON.stringify({ did, isIgnored })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(isIgnored ? '已屏蔽该音箱设备' : '已取消设备屏蔽', 'info');
+        await fetchDevices();
+      } else {
+        showToast(json.error || '操作失败', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
     }
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
+  });
 };
 
 function selectAllDevices() {
   devices.forEach((d) => selectedDids.add(d.did));
+  persistSelectedDids();
   renderDevices();
 }
 
 function deselectAllDevices() {
   selectedDids.clear();
+  hasStoredSelection = true;
+  persistSelectedDids();
   renderDevices();
 }
 
@@ -630,100 +819,132 @@ async function sendTTS() {
     return;
   }
 
-  const btn = document.getElementById('btn-send-tts');
-  btn.disabled = true;
-  btn.textContent = '播报发送中...';
-
   const chime = document.getElementById('tts-chime-select')?.value || 'dingdong';
 
-  try {
-    const res = await authFetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, dids: targetDids, chime }),
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast('📢 语音播报指令已成功下发至音箱！', 'success');
-    } else {
-      showToast(`播报失败: ${json.error}`, 'error');
+  await withButtonLoading('btn-send-tts', '播报发送中', async () => {
+    try {
+      const res = await authFetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, dids: targetDids, chime }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`📢 已向 ${targetDids.length} 台音箱下发语音播报`, 'success');
+      } else {
+        showToast(`播报失败: ${json.error}`, 'error');
+      }
+    } catch (err) {
+      showToast(`请求异常: ${err.message}`, 'error');
     }
-  } catch (err) {
-    showToast(`请求异常: ${err.message}`, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '📢 发送语音播报 (所选音箱)';
-  }
+  });
 }
 
-// 5. 音乐搜索
+// 5. 音乐搜索 (严格使用当前选定的音源渠道)
+const PLATFORM_LABELS = { all: '聚合', kw: '酷我', tx: 'QQ', kg: '酷狗', mg: '咪咕', wy: '网易云' };
+
 async function doSearch() {
   const keyword = document.getElementById('search-input').value.trim();
-  if (!keyword) return;
-
-  const container = document.getElementById('search-results');
-  container.innerHTML = '<div class="empty-hint">🔍 正在通过 LX 音源搜索全网曲库...</div>';
-
-  try {
-    const res = await authFetch(`/api/search?keyword=${encodeURIComponent(keyword)}&limit=20`);
-    const json = await res.json();
-
-    if (json.ok && json.data?.list?.length > 0) {
-      container.innerHTML = '';
-      json.data.list.forEach((song) => {
-        const item = document.createElement('div');
-        item.className = 'song-item';
-        item.innerHTML = `
-          <div class="song-info">
-            <div class="song-title">${song.name}</div>
-            <div class="song-meta">${song.singer} • ${song.albumName || '单曲'} • ${song.interval}</div>
-          </div>
-          <button class="btn-cast">🔊 投播小爱</button>
-        `;
-
-        item.querySelector('.btn-cast').addEventListener('click', () => castSong(song));
-        container.appendChild(item);
-      });
-    } else {
-      container.innerHTML = '<div class="empty-hint">未搜索到相关歌曲</div>';
-    }
-  } catch (err) {
-    container.innerHTML = `<div class="empty-hint">搜索失败: ${err.message}</div>`;
-  }
-}
-
-// 6. 投播歌曲到小爱音箱
-async function castSong(music) {
-  const targetDids = Array.from(selectedDids);
-  if (targetDids.length === 0) {
-    showToast('请在左侧勾选要投播的小爱音箱', 'warning');
+  if (!keyword) {
+    showToast('请输入歌名或歌手', 'warning');
     return;
   }
 
-  try {
-    const res = await authFetch('/api/play', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ music, dids: targetDids }),
-    });
-    const json = await res.json();
-    if (json.ok) {
-      document.getElementById('player-title').textContent = music.name;
-      document.getElementById('player-artist').textContent = music.singer;
-      isPlaying = true;
-      document.getElementById('btn-toggle-play').textContent = '⏸️';
-      showToast(`🎵 正在为音箱投播: ${music.singer} - ${music.name}`, 'success');
-    } else {
-      showToast(`投播失败: ${json.error}`, 'error');
+  const container = document.getElementById('search-results');
+  const source = activeSearchSource || 'all';
+  const sourceName = availableSources.find((s) => s.id === source)?.name || source;
+
+  container.innerHTML = `
+    <div class="search-loading">
+      <span class="btn-spinner big" aria-hidden="true"></span>
+      <div>正在通过「${escapeHtml(sourceName)}」搜索…</div>
+    </div>
+  `;
+
+  await withButtonLoading('btn-search', '搜索中', async () => {
+    try {
+      const res = await authFetch(
+        `/api/search?keyword=${encodeURIComponent(keyword)}&limit=20&source=${encodeURIComponent(source)}`
+      );
+      const json = await res.json();
+
+      if (json.ok && json.data?.list?.length > 0) {
+        container.innerHTML = '';
+        json.data.list.forEach((song) => {
+          const item = document.createElement('div');
+          item.className = 'song-item';
+          const platformLabel = PLATFORM_LABELS[song.source] || song.source || '';
+          item.innerHTML = `
+            <div class="song-info">
+              <div class="song-title">
+                ${escapeHtml(song.name)}
+                ${platformLabel ? `<span class="song-source-tag source-${escapeHtml(song.source)}">${escapeHtml(platformLabel)}</span>` : ''}
+              </div>
+              <div class="song-meta">${escapeHtml(song.singer)} • ${escapeHtml(song.albumName || '单曲')} • ${escapeHtml(song.interval || '')}</div>
+            </div>
+            <button class="btn-cast">🔊 投播小爱</button>
+          `;
+
+          const castBtn = item.querySelector('.btn-cast');
+          castBtn.addEventListener('click', () => castSong(song, castBtn));
+          container.appendChild(item);
+        });
+      } else if (json.ok) {
+        container.innerHTML = `
+          <div class="empty-hint">
+            <div class="empty-hint-icon">🕳️</div>
+            <div>「${escapeHtml(sourceName)}」下未搜索到「${escapeHtml(keyword)}」</div>
+            <div class="empty-hint-sub">可切换其他音源渠道，或改用聚合搜索</div>
+          </div>
+        `;
+      } else {
+        container.innerHTML = `<div class="empty-hint">搜索失败: ${escapeHtml(json.error || '未知错误')}</div>`;
+      }
+    } catch (err) {
+      container.innerHTML = `<div class="empty-hint">搜索失败: ${escapeHtml(err.message)}</div>`;
     }
-  } catch (err) {
-    showToast(`投播异常: ${err.message}`, 'error');
+  });
+}
+
+// 6. 投播歌曲到小爱音箱
+async function castSong(music, triggerBtn) {
+  const targetDids = Array.from(selectedDids);
+  if (targetDids.length === 0) {
+    showToast('请在左侧至少勾选一台小爱音箱', 'warning');
+    return;
   }
+
+  await withButtonLoading(triggerBtn, '投播中', async () => {
+    try {
+      const res = await authFetch('/api/play', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ music, dids: targetDids }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        document.getElementById('player-title').textContent = music.name;
+        document.getElementById('player-artist').textContent = music.singer;
+        isPlaying = true;
+        document.getElementById('btn-toggle-play').textContent = '⏸️';
+        showToast(`🎵 正在投播: ${music.singer} - ${music.name}`, 'success');
+        setTimeout(fetchStatus, 1200);
+      } else {
+        showToast(`投播失败: ${json.error}`, 'error');
+      }
+    } catch (err) {
+      showToast(`投播异常: ${err.message}`, 'error');
+    }
+  });
 }
 
 // 7. 播放控制 (针对当前勾选的所有音箱)
 async function controlPlay(action) {
   const targetDids = Array.from(selectedDids);
+  if (targetDids.length === 0) {
+    showToast('请先勾选要控制的小爱音箱', 'warning');
+    return;
+  }
   if (action === 'pause') {
     isPlaying = false;
     const btnPlay = document.getElementById('btn-toggle-play');
@@ -741,6 +962,8 @@ async function controlPlay(action) {
     showToast('⏹️ 已停止播放', 'info', 2000);
   }
 
+  const controls = document.getElementById('player-bar');
+  controls?.classList.add('is-busy');
   try {
     await authFetch('/api/control', {
       method: 'POST',
@@ -749,7 +972,9 @@ async function controlPlay(action) {
     });
     setTimeout(fetchStatus, 400);
   } catch (err) {
-    console.error('控制失败:', err);
+    showToast(`控制失败: ${err.message}`, 'error');
+  } finally {
+    controls?.classList.remove('is-busy');
   }
 }
 
@@ -770,7 +995,7 @@ window.controlSingleSpeaker = async function (did, action) {
     });
     setTimeout(fetchStatus, 400);
   } catch (err) {
-    console.error('单音箱控制失败:', err);
+    showToast(`单音箱控制失败: ${err.message}`, 'error');
   }
 };
 

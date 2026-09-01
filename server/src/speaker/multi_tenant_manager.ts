@@ -178,10 +178,21 @@ export class MultiTenantSpeakerManager {
 
   private async handleVoiceCommand(userId: string, did: string, cmd: ParsedVoiceCommand, client: XiaoAiClient): Promise<void> {
     if (cmd.type === 'play' && cmd.keyword) {
-      console.log(`[MultiTenant] 用户 [${userId}] 搜索音乐: ${cmd.keyword}`);
-      const searchRes = await this.sourceEngine.search(cmd.keyword, 1, 20);
+      // Voice search must honour the tenant's own source choice, falling back to
+      // the global default only when the tenant has not picked one.
+      const settings = this.db.getUserSettings(userId);
+      const platform =
+        settings.search_platform || this.db.getSystemSetting('default_platform', 'all');
+      const quality = settings.preferred_quality || '320k';
+
+      console.log(
+        `[MultiTenant] 用户 [${userId}] 搜索音乐: ${cmd.keyword} [音源: ${platform} | 音质: ${quality}]`
+      );
+      const searchRes = await this.sourceEngine.search(cmd.keyword, 1, 20, platform);
       if (searchRes.list.length > 0) {
-        await this.scheduler.playMusicList(did, searchRes.list, 0, client);
+        await this.scheduler.playMusicList(did, searchRes.list, 0, client, quality);
+      } else {
+        console.warn(`[MultiTenant] 用户 [${userId}] 在音源 [${platform}] 下未搜索到: ${cmd.keyword}`);
       }
     } else if (cmd.type === 'stop') {
       await this.scheduler.stop(did, client);
