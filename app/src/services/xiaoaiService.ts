@@ -1,8 +1,20 @@
 import { getData, saveData } from '@/plugins/storage'
+import { storageDataPrefix } from '@/config/constant'
 
-const SOUNDHUB_SERVER_URL_KEY = 'soundhub_server_url'
-const SOUNDHUB_TOKEN_KEY = 'soundhub_token'
-const SOUNDHUB_SELECTED_DIDS_KEY = 'soundhub_selected_dids'
+const SOUNDHUB_SERVER_URL_KEY = storageDataPrefix.soundhubServerUrl
+const SOUNDHUB_TOKEN_KEY = storageDataPrefix.soundhubToken
+const SOUNDHUB_SELECTED_DIDS_KEY = storageDataPrefix.soundhubSelectedDids
+
+/**
+ * Keys an earlier build wrote without the `@` prefix and without registering
+ * them in storageDataPrefix. Read as a fallback so an existing install does not
+ * lose its server address, token and speaker selection on upgrade.
+ */
+const LEGACY_KEYS = {
+  serverUrl: 'soundhub_server_url',
+  token: 'soundhub_token',
+  selectedDids: 'soundhub_selected_dids',
+} as const
 
 export interface XiaoAiDevice {
   did: string
@@ -40,14 +52,28 @@ class XiaoAiService {
 
   public async init(): Promise<void> {
     try {
-      const url = await getData<string>(SOUNDHUB_SERVER_URL_KEY)
-      if (url) this.serverUrl = url
+      // Prefer the registered key, then migrate whatever the legacy bare key
+      // holds so the value survives and later reads find it in the new place.
+      const url = await getData<string>(SOUNDHUB_SERVER_URL_KEY) ??
+        await getData<string>(LEGACY_KEYS.serverUrl)
+      if (url) {
+        this.serverUrl = url
+        await saveData(SOUNDHUB_SERVER_URL_KEY, url)
+      }
 
-      const token = await getData<string>(SOUNDHUB_TOKEN_KEY)
-      if (token) this.token = token
+      const token = await getData<string>(SOUNDHUB_TOKEN_KEY) ??
+        await getData<string>(LEGACY_KEYS.token)
+      if (token) {
+        this.token = token
+        await saveData(SOUNDHUB_TOKEN_KEY, token)
+      }
 
-      const dids = await getData<string[]>(SOUNDHUB_SELECTED_DIDS_KEY)
-      if (dids && Array.isArray(dids)) this.selectedDids = dids
+      const dids = await getData<string[]>(SOUNDHUB_SELECTED_DIDS_KEY) ??
+        await getData<string[]>(LEGACY_KEYS.selectedDids)
+      if (dids && Array.isArray(dids)) {
+        this.selectedDids = dids
+        await saveData(SOUNDHUB_SELECTED_DIDS_KEY, dids)
+      }
     } catch {
       // ignore
     }

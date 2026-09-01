@@ -9,16 +9,13 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
-  StyleSheet,
   ActivityIndicator,
-  ToastAndroid,
-  Alert,
-  Platform,
 } from 'react-native'
 import { xiaoaiService, type XiaoAiDevice } from '@/services/xiaoaiService'
 import { normalizeMusicInfo, toCastParams } from '@/services/soundhubMapper'
 import { usePlayMusicInfo } from '@/store/player/hook'
 import { useTheme } from '@/store/theme/hook'
+import { createStyle, toast } from '@/utils/tools'
 
 interface Props {
   visible: boolean
@@ -57,7 +54,7 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
         void xiaoaiService.setSelectedDids(defaultDids)
       }
     } catch (err: unknown) {
-      showToast(`拉取音箱失败: ${(err as Error).message}`)
+      toast(`拉取音箱失败: ${(err as Error).message}`)
     } finally {
       setLoading(false)
     }
@@ -69,14 +66,6 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
       setSelectedDids(xiaoaiService.getSelectedDids())
     }
   }, [visible, loadDevices])
-
-  const showToast = (msg: string) => {
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(msg, ToastAndroid.SHORT)
-    } else {
-      Alert.alert('提示', msg)
-    }
-  }
 
   const toggleSelect = (did: string) => {
     let next: string[]
@@ -97,25 +86,25 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
 
   const handleCast = async() => {
     if (!targetMusic) {
-      showToast('当前没有可投播的歌曲，请先播放或选中一首')
+      toast('当前没有可投播的歌曲，请先播放或选中一首')
       return
     }
     if (!mapped?.ok || !mapped.music) {
-      showToast(mapped?.error ?? '该歌曲无法投播')
+      toast(mapped?.error ?? '该歌曲无法投播')
       return
     }
     if (selectedDids.length === 0) {
-      showToast('请至少选择一台小爱音箱')
+      toast('请至少选择一台小爱音箱')
       return
     }
 
     setCasting(true)
     try {
       await xiaoaiService.castSong(mapped.music, selectedDids)
-      showToast(`已成功投播至 ${selectedDids.length} 台小爱音箱 🎵`)
+      toast(`已成功投播至 ${selectedDids.length} 台小爱音箱 🎵`)
       onClose()
     } catch (err: unknown) {
-      showToast(`投播失败: ${(err as Error).message}`)
+      toast(`投播失败: ${(err as Error).message}`)
     } finally {
       setCasting(false)
     }
@@ -229,7 +218,7 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
   )
 }
 
-const styles = StyleSheet.create({
+const styles = createStyle({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

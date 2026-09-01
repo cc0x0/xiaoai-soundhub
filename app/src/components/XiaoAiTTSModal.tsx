@@ -10,14 +10,11 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  StyleSheet,
   ActivityIndicator,
-  ToastAndroid,
-  Alert,
-  Platform,
 } from 'react-native'
 import { xiaoaiService, type XiaoAiDevice } from '@/services/xiaoaiService'
 import { useTheme } from '@/store/theme/hook'
+import { createStyle, toast } from '@/utils/tools'
 
 interface Props {
   visible: boolean
@@ -40,14 +37,6 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
   const [loading, setLoading] = useState<boolean>(false)
   const [sending, setSending] = useState<boolean>(false)
 
-  const showToast = (msg: string) => {
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(msg, ToastAndroid.SHORT)
-    } else {
-      Alert.alert('提示', msg)
-    }
-  }
-
   const loadDevices = useCallback(async() => {
     setLoading(true)
     try {
@@ -59,7 +48,7 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
         void xiaoaiService.setSelectedDids(all)
       }
     } catch (err: unknown) {
-      showToast(`拉取设备失败: ${(err as Error).message}`)
+      toast(`拉取设备失败: ${(err as Error).message}`)
     } finally {
       setLoading(false)
     }
@@ -86,21 +75,21 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
   const handleSend = async() => {
     const content = text.trim()
     if (!content) {
-      showToast('请输入要播报的文本')
+      toast('请输入要播报的文本')
       return
     }
     if (selectedDids.length === 0) {
-      showToast('请至少选择一台音箱')
+      toast('请至少选择一台音箱')
       return
     }
 
     setSending(true)
     try {
       await xiaoaiService.sendTTS(content, selectedDids)
-      showToast(`📢 已向 ${selectedDids.length} 台小爱音箱下发语音播报！`)
+      toast(`📢 已向 ${selectedDids.length} 台小爱音箱下发语音播报！`)
       onClose()
     } catch (err: unknown) {
-      showToast(`播报失败: ${(err as Error).message}`)
+      toast(`播报失败: ${(err as Error).message}`)
     } finally {
       setSending(false)
     }
@@ -191,7 +180,7 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
   )
 }
 
-const styles = StyleSheet.create({
+const styles = createStyle({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
