@@ -843,6 +843,14 @@ async function sendTTS() {
 // 5. 音乐搜索 (严格使用当前选定的音源渠道)
 const PLATFORM_LABELS = { all: '聚合', kw: '酷我', tx: 'QQ', kg: '酷狗', mg: '咪咕', wy: '网易云' };
 
+/**
+ * Identifies the search whose results the panel is currently allowed to show.
+ * An aggregated search waits on five platforms at once, so switching to a
+ * single platform afterwards can easily answer first — without this guard the
+ * slower earlier response lands last and overwrites the newer results.
+ */
+let latestSearchKey = '';
+
 async function doSearch() {
   const keyword = document.getElementById('search-input').value.trim();
   if (!keyword) {
@@ -853,6 +861,8 @@ async function doSearch() {
   const container = document.getElementById('search-results');
   const source = activeSearchSource || 'all';
   const sourceName = availableSources.find((s) => s.id === source)?.name || source;
+  const searchKey = `${source}__${keyword}`;
+  latestSearchKey = searchKey;
 
   container.innerHTML = `
     <div class="search-loading">
@@ -867,6 +877,9 @@ async function doSearch() {
         `/api/search?keyword=${encodeURIComponent(keyword)}&limit=20&source=${encodeURIComponent(source)}`
       );
       const json = await res.json();
+
+      // A newer search has been issued since this one started — drop the result.
+      if (searchKey !== latestSearchKey) return;
 
       if (json.ok && json.data?.list?.length > 0) {
         container.innerHTML = '';
@@ -901,6 +914,7 @@ async function doSearch() {
         container.innerHTML = `<div class="empty-hint">搜索失败: ${escapeHtml(json.error || '未知错误')}</div>`;
       }
     } catch (err) {
+      if (searchKey !== latestSearchKey) return;
       container.innerHTML = `<div class="empty-hint">搜索失败: ${escapeHtml(err.message)}</div>`;
     }
   });

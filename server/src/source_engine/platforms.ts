@@ -13,7 +13,7 @@
  */
 
 import axios from 'axios';
-import { MusicItem } from '../types/index.js';
+import { MusicAlternate, MusicItem } from '../types/index.js';
 
 export const AGGREGATE_SOURCE = 'all';
 
@@ -611,13 +611,39 @@ export function mergeAggregatedResults(
 
   scored.sort((a, b) => b.score - a.score || a.rank - b.rank);
 
+  // Index every copy of a track so the winning row can carry the others as
+  // resolution hints rather than throwing them away.
+  const copiesPerTrack = new Map<string, MusicItem[]>();
+  for (const entry of scored) {
+    if (!copiesPerTrack.has(entry.key)) copiesPerTrack.set(entry.key, []);
+    copiesPerTrack.get(entry.key)!.push(entry.item);
+  }
+
   const merged: MusicItem[] = [];
   const seen = new Set<string>();
   for (const entry of scored) {
     if (merged.length >= limit) break;
     if (seen.has(entry.key)) continue;
     seen.add(entry.key);
-    merged.push(entry.item);
+
+    // One alternate per platform: a single catalogue can list the same
+    // recording more than once (reissues, album vs. single), and retrying the
+    // same platform twice would buy nothing.
+    const alternates: MusicAlternate[] = [];
+    const altSources = new Set<string>([entry.item.source]);
+    for (const copy of copiesPerTrack.get(entry.key) || []) {
+      if (altSources.has(copy.source)) continue;
+      altSources.add(copy.source);
+      alternates.push({
+        source: copy.source,
+        id: copy.id,
+        name: copy.name,
+        singer: copy.singer,
+        duration: copy.duration,
+      });
+    }
+
+    merged.push(alternates.length > 0 ? { ...entry.item, alternates } : entry.item);
   }
 
   return merged;

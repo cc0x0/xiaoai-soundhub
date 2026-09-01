@@ -62,6 +62,19 @@ export interface AppConfig {
   };
 }
 
+/**
+ * The same recording as located on another platform, kept as a resolution hint.
+ * Slim on purpose: only the fields a resolver needs, so carrying these through
+ * the API payload stays cheap.
+ */
+export interface MusicAlternate {
+  source: string;
+  id: string;
+  name: string;
+  singer: string;
+  duration?: number;
+}
+
 export interface MusicItem {
   id: string;
   name: string;
@@ -72,6 +85,12 @@ export interface MusicItem {
   img?: string;
   source: string;
   raw?: Record<string, unknown>;
+  /**
+   * Copies of this exact recording found on other platforms during an
+   * aggregated search. Lets resolution fall back without searching again —
+   * which matters because QQ/酷狗/咪咕 gate their direct links behind VIP.
+   */
+  alternates?: MusicAlternate[];
 }
 
 export interface SearchResult {

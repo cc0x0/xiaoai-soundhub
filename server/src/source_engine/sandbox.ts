@@ -422,8 +422,27 @@ export class SourceEngine {
     // same recording elsewhere — matched strictly on title + artist + duration,
     // so a cover or a short-video edit can never take its place.
     if (options.allowCrossSource) {
+      // An aggregated search already located this recording on other platforms
+      // and attached them; those cost nothing to try, so they go first.
+      for (const alt of songItem.alternates || []) {
+        if (!isPlatformId(alt.source) || alt.source === platform) continue;
+        const altPlatform = alt.source as PlatformId;
+        const res = await this.resolveOnPlatform(
+          { ...alt, albumName: songItem.albumName, img: songItem.img },
+          mapQuality(requestedQuality, PLATFORM_QUALITIES[altPlatform]),
+          altPlatform
+        );
+        if (res) {
+          console.log(
+            `[SourceEngine] ⚠️ [${PLATFORM_NAMES[platform]}] 无可用直链，已改用聚合搜索时记录的同曲副本 [${PLATFORM_NAMES[altPlatform]}]: ${alt.singer} - ${alt.name}`
+          );
+          return res;
+        }
+      }
+
+      const triedSources = new Set([platform, ...(songItem.alternates || []).map((a) => a.source)]);
       for (const fallback of PLATFORM_IDS) {
-        if (fallback === platform) continue;
+        if (triedSources.has(fallback)) continue;
 
         const twin = await findSameTrackOnPlatform(songItem, fallback);
         if (!twin) continue;
