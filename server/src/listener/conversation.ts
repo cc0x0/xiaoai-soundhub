@@ -50,7 +50,7 @@ export class ConversationListener {
 
       try {
         await this.checkGlobalAsk();
-      } catch (err: any) {
+      } catch {
         // 忽略单次网络闪断
       }
 

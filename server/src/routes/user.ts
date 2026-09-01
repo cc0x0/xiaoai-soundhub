@@ -6,6 +6,12 @@ import { AuthRequest } from './auth.js';
 import { SourceEngine } from '../source_engine/sandbox.js';
 import { PlayScheduler } from '../scheduler/queue.js';
 import { XiaomiAuthService } from '../speaker/xiaomi_auth.js';
+import { AGGREGATE_SOURCE, PLATFORM_IDS, isPlatformId } from '../source_engine/platforms.js';
+
+/** A valid search source is either the aggregate marker or a known platform id. */
+function isValidSearchSource(value: string): boolean {
+  return value === AGGREGATE_SOURCE || isPlatformId(value);
+}
 
 export function createUserRouter(
   db: AppDatabase,
@@ -196,10 +202,28 @@ export function createUserRouter(
   // 9. 更新用户个性化偏好
   router.post('/settings', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
-    const { active_source, preferred_quality, custom_stop_keywords, custom_prefixes, enable_tts_chime, default_chime } = req.body;
-    
+    const {
+      active_source,
+      search_platform,
+      preferred_quality,
+      custom_stop_keywords,
+      custom_prefixes,
+      enable_tts_chime,
+      default_chime,
+    } = req.body;
+
+    // Reject unknown source ids so a typo cannot silently disable voice search.
+    if (search_platform && !isValidSearchSource(String(search_platform))) {
+      res.status(400).json({
+        ok: false,
+        error: `不支持的音源渠道: ${search_platform}（可选 all / ${PLATFORM_IDS.join(' / ')}）`,
+      });
+      return;
+    }
+
     db.updateUserSettings(userId, {
       active_source,
+      search_platform,
       preferred_quality,
       custom_stop_keywords: typeof custom_stop_keywords === 'object' ? JSON.stringify(custom_stop_keywords) : custom_stop_keywords,
       custom_prefixes: typeof custom_prefixes === 'object' ? JSON.stringify(custom_prefixes) : custom_prefixes,

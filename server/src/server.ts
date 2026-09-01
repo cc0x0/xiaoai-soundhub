@@ -17,6 +17,7 @@ import { createAuthRouter, authMiddleware, adminOnlyMiddleware } from './routes/
 import { createUserRouter } from './routes/user.js';
 import { createAdminRouter } from './routes/admin.js';
 import { createPaymentRouter } from './routes/payment.js';
+import { AGGREGATE_SOURCE, PLATFORM_IDS, PLATFORM_NAMES } from './source_engine/platforms.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -132,13 +133,52 @@ export async function bootstrap() {
     }
   });
 
-  // 公共音乐搜索接口
+  /** Resolve the tenant id from a Bearer token, or null when anonymous. */
+  const resolveUserId = (req: Request): string | null => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+    const payload = SecurityCrypto.verifyToken<{ id: string }>(authHeader.split(' ')[1], jwtSecret);
+    return payload?.id || null;
+  };
+
+  /**
+   * Decide which source a request should search.
+   * Priority: explicit query param > tenant setting > global default.
+   */
+  const resolveSearchSource = (req: Request): string => {
+    const explicit = String(req.query.source || '').trim();
+    if (explicit) return explicit;
+
+    const userId = resolveUserId(req);
+    if (userId) {
+      const settings = db.getUserSettings(userId);
+      if (settings?.search_platform) return settings.search_platform;
+    }
+    return db.getSystemSetting('default_platform', AGGREGATE_SOURCE);
+  };
+
+  // 支持的音源渠道清单 (供前端渲染音源选择器)
+  app.get('/api/sources', (req: Request, res: Response) => {
+    const platforms = PLATFORM_IDS.map((id) => ({ id, name: PLATFORM_NAMES[id] }));
+    res.json({
+      ok: true,
+      data: {
+        aggregate: { id: AGGREGATE_SOURCE, name: PLATFORM_NAMES[AGGREGATE_SOURCE] },
+        platforms,
+        current: resolveSearchSource(req),
+        activeScript: sourceEngine.getActiveSource(),
+        scriptPlatforms: sourceEngine.getScriptPlatforms(),
+      },
+    });
+  });
+
+  // 公共音乐搜索接口 (source 支持 all 聚合 或 单一平台 wy/tx/kw/kg/mg)
   app.get('/api/search', async (req: Request, res: Response) => {
     try {
       const keyword = (req.query.keyword as string || '').trim();
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 20;
-      const source = (req.query.source as string) || db.getSystemSetting('default_platform', 'kw');
+      const source = resolveSearchSource(req);
 
       if (!keyword) {
         res.status(400).json({ ok: false, error: 'keyword is required' });
@@ -213,21 +253,19 @@ export async function bootstrap() {
       }
 
       let client = fallbackClient;
-      const authHeader = req.headers.authorization;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
-        const payload = SecurityCrypto.verifyToken<{ id: string }>(token, jwtSecret);
-        if (payload?.id) {
-          const userClient = await speakerManager.getClient(payload.id);
-          if (userClient) client = userClient;
-        }
+      let quality = '320k';
+      const userId = resolveUserId(req);
+      if (userId) {
+        const userClient = await speakerManager.getClient(userId);
+        if (userClient) client = userClient;
+        quality = db.getUserSettings(userId)?.preferred_quality || '320k';
       }
 
       for (const targetDid of targetDids) {
         if (playlist && Array.isArray(playlist)) {
-          await scheduler.playMusicList(targetDid, playlist, index || 0, client);
+          await scheduler.playMusicList(targetDid, playlist, index || 0, client, quality);
         } else if (music) {
-          await scheduler.playSingle(targetDid, music, client);
+          await scheduler.playSingle(targetDid, music, client, quality);
         }
       }
 
@@ -243,14 +281,12 @@ export async function bootstrap() {
       const { action, did, dids, music, playlist, index, volume, text } = req.body;
 
       let client = fallbackClient;
-      const authHeader = req.headers.authorization;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
-        const payload = SecurityCrypto.verifyToken<{ id: string }>(token, jwtSecret);
-        if (payload?.id) {
-          const userClient = await speakerManager.getClient(payload.id);
-          if (userClient) client = userClient;
-        }
+      let quality = '320k';
+      const userId = resolveUserId(req);
+      if (userId) {
+        const userClient = await speakerManager.getClient(userId);
+        if (userClient) client = userClient;
+        quality = db.getUserSettings(userId)?.preferred_quality || '320k';
       }
 
       // 智能解析目标音箱：支持 dids 数组、单个 did，或正在播放的活跃音箱
@@ -275,13 +311,13 @@ export async function bootstrap() {
         switch (action) {
           case 'play_list':
             if (Array.isArray(playlist) && playlist.length > 0) {
-              await scheduler.playMusicList(targetDid, playlist, index || 0, client);
+              await scheduler.playMusicList(targetDid, playlist, index || 0, client, quality);
             }
             break;
 
           case 'play_music':
             if (music) {
-              await scheduler.playMusicList(targetDid, [music], 0, client);
+              await scheduler.playMusicList(targetDid, [music], 0, client, quality);
             }
             break;
 

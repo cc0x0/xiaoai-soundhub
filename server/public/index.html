@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>XiaoAi SoundHub - 小爱声枢控制台</title>
-  <link rel="stylesheet" href="style.css?v=20260831_01">
+  <link rel="stylesheet" href="style.css?v=20260901_01">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-container">
@@ -44,7 +44,10 @@
         <!-- 音箱列表 -->
         <div class="devices-section">
           <div class="section-title-bar">
-            <span class="section-label">可用音箱设备 (<span id="device-count">0</span>)</span>
+            <span class="section-label">
+              可用音箱设备 (<span id="device-count">0</span>)
+              <span class="selection-summary" id="selection-summary"></span>
+            </span>
             <div class="select-actions">
               <button class="btn-link" id="btn-select-all">全选</button>
               <span class="divider">|</span>
@@ -91,14 +94,24 @@
       <!-- 右侧栏：全网音乐搜索与投播 -->
       <section class="card music-panel">
         <div class="card-header">
-          <h2>🔍 全网音乐搜索 & 投播 (LX 音源)</h2>
-          <div class="source-tag" id="active-source-badge">音源: 加载中</div>
+          <h2>🔍 全网音乐搜索 &amp; 投播</h2>
+          <div class="source-tag" id="active-source-badge">音源脚本: 加载中</div>
+        </div>
+
+        <!-- 音源渠道选择器 (聚合搜索 / 指定平台) -->
+        <div class="source-picker" id="source-picker">
+          <span class="source-picker-label">🎚️ 搜索音源</span>
+          <div class="source-tabs" id="source-tabs">
+            <span class="source-tab-skeleton"></span>
+            <span class="source-tab-skeleton"></span>
+            <span class="source-tab-skeleton"></span>
+          </div>
         </div>
 
         <!-- 搜索栏 -->
         <div class="search-bar">
           <input type="text" id="search-input" placeholder="输入歌名、歌手，例如：周杰伦 晴天..." />
-          <button class="btn btn-primary" id="btn-search">搜索</button>
+          <button class="btn btn-primary" id="btn-search">🔍 搜索</button>
         </div>
 
         <!-- 快捷热门歌手 -->
@@ -113,7 +126,11 @@
         <!-- 搜索结果列表 -->
         <div class="search-results-wrapper">
           <div class="search-results" id="search-results">
-            <div class="empty-hint">在上方搜索框输入关键词，通过云端 LX 音源开始搜索</div>
+            <div class="empty-hint">
+              <div class="empty-hint-icon">🎧</div>
+              <div>选择上方音源渠道，输入关键词开始搜索</div>
+              <div class="empty-hint-sub">聚合搜索会同时查询全部平台并按匹配度排序</div>
+            </div>
           </div>
         </div>
 
@@ -254,11 +271,26 @@
         <input type="text" id="user-pref-stop-words" placeholder="例如: 别唱了, 闭嘴, 退下, 停止播放, 关掉音乐" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
       </div>
 
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">首选播放音质</label>
-        <select id="user-pref-quality" style="width: 100%; box-sizing: border-box; padding: 10px; background: #1a1a24; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
+      <div class="settings-field">
+        <label class="settings-label">默认搜索音源渠道</label>
+        <select id="user-pref-search-platform" class="settings-input">
+          <option value="all">🔀 聚合搜索 (全部平台并发，按匹配度排序)</option>
+          <option value="kw">🎵 酷我音乐</option>
+          <option value="tx">🐧 QQ音乐</option>
+          <option value="kg">🎤 酷狗音乐</option>
+          <option value="mg">📻 咪咕音乐</option>
+          <option value="wy">☁️ 网易云音乐</option>
+        </select>
+        <div class="settings-hint">
+          小爱音箱语音点歌 (如"播放街角的晚风") 也会走这里选定的音源渠道。
+        </div>
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label">首选播放音质</label>
+        <select id="user-pref-quality" class="settings-input">
           <option value="320k">🎵 320k 高品质 MP3 (推荐，极速流畅)</option>
-          <option value="flac">💎 FLAC 无损音质 (极致发烧原声)</option>
+          <option value="flac">💎 FLAC 无损音质 (平台不支持时自动降级)</option>
           <option value="128k">⚡ 128k 标准流畅</option>
         </select>
       </div>
@@ -280,7 +312,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260831_01"></script>
+  <script src="app.js?v=20260901_01"></script>
 </body>
 </html>
 

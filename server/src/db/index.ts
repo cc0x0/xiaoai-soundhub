@@ -1,4 +1,3 @@
-// @ts-ignore
 import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
@@ -40,7 +39,10 @@ export interface SpeakerRow {
 
 export interface UserSettingsRow {
   user_id: string;
+  /** LX custom source script file name (sources/*.js). */
   active_source: string;
+  /** Search platform: wy/tx/kw/kg/mg, or `all` for aggregated search. */
+  search_platform: string;
   preferred_quality: string;
   custom_stop_keywords: string;
   custom_prefixes: string;
@@ -115,6 +117,7 @@ export class AppDatabase {
       CREATE TABLE IF NOT EXISTS user_settings (
         user_id TEXT PRIMARY KEY,
         active_source TEXT NOT NULL DEFAULT 'my-custom-source.js',
+        search_platform TEXT NOT NULL DEFAULT 'all',
         preferred_quality TEXT NOT NULL DEFAULT '320k',
         custom_stop_keywords TEXT NOT NULL DEFAULT '[]',
         custom_prefixes TEXT NOT NULL DEFAULT '[]',
@@ -147,7 +150,29 @@ export class AppDatabase {
       );
     `);
 
+    this.runMigrations();
     this.seedDefaults();
+  }
+
+  /**
+   * Additive schema migrations for databases created by earlier versions.
+   * Each step is idempotent: the column is only added when missing.
+   */
+  private runMigrations(): void {
+    this.addColumnIfMissing('user_settings', 'search_platform', "TEXT NOT NULL DEFAULT 'all'");
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    try {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as unknown as {
+        name: string;
+      }[];
+      if (columns.some((c) => c.name === column)) return;
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      console.log(`[Database] 🔧 已迁移表 ${table}：新增字段 ${column}`);
+    } catch (err: any) {
+      console.warn(`[Database] 迁移字段 ${table}.${column} 失败:`, err.message);
+    }
   }
 
   private seedDefaults(): void {
@@ -178,7 +203,8 @@ export class AppDatabase {
       ['poll_interval_ms', '1200', 'listener', '小爱云端对话轮询间隔 (毫秒)'],
       ['switch_buffer_ms', '2000', 'scheduler', '切歌等待缓冲区冗余时间 (毫秒)'],
       ['chime_delay_ms', '1400', 'audio', '提示音播放与语音朗读间隔等待延时 (毫秒)'],
-      ['default_platform', 'kw', 'source', '音乐搜索默认平台 (kw/wy/tx/kg/mg)'],
+      ['default_platform', 'all', 'source', '默认搜索音源渠道 (all=聚合搜索 / kw / wy / tx / kg / mg)'],
+      ['allow_cross_source_fallback', 'true', 'source', '所选音源无直链时，是否允许"精确匹配同一首歌"跨平台兜底取流 (true/false)'],
       ['allow_registration', 'true', 'auth', '是否允许新用户注册 (true/false)'],
       ['system_notice', '欢迎使用 XiaoAi SoundHub 小爱全屋音乐声枢！', 'general', '全站公告信息']
     ];
@@ -358,12 +384,25 @@ export class AppDatabase {
 
   public updateUserSettings(userId: string, settings: Partial<UserSettingsRow>): void {
     const current = this.getUserSettings(userId);
-    const updated = { ...current, ...settings };
+    // Drop undefined keys so a partial update never blanks an existing value.
+    const patch = Object.fromEntries(
+      Object.entries(settings).filter(([, v]) => v !== undefined && v !== null)
+    ) as Partial<UserSettingsRow>;
+    const updated = { ...current, ...patch };
     this.db.prepare(`
       UPDATE user_settings
-      SET active_source = ?, preferred_quality = ?, custom_stop_keywords = ?, custom_prefixes = ?, enable_tts_chime = ?, default_chime = ?
+      SET active_source = ?, search_platform = ?, preferred_quality = ?, custom_stop_keywords = ?, custom_prefixes = ?, enable_tts_chime = ?, default_chime = ?
       WHERE user_id = ?
-    `).run(updated.active_source, updated.preferred_quality, updated.custom_stop_keywords, updated.custom_prefixes, updated.enable_tts_chime, updated.default_chime, userId);
+    `).run(
+      updated.active_source,
+      updated.search_platform || 'all',
+      updated.preferred_quality,
+      updated.custom_stop_keywords,
+      updated.custom_prefixes,
+      updated.enable_tts_chime,
+      updated.default_chime,
+      userId
+    );
   }
 
   // ====== 系统全局参数 ======

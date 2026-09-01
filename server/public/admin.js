@@ -35,6 +35,29 @@ function showToast(message, type = 'info', duration = 3000) {
 }
 window.showToast = showToast;
 
+/**
+ * Put a button into a busy state for the duration of an async action, so every
+ * click gives immediate feedback and cannot be fired twice.
+ */
+async function withButtonLoading(button, label, task) {
+  const el = typeof button === 'string' ? document.getElementById(button) : button;
+  if (!el) return await task();
+
+  const originalHtml = el.innerHTML;
+  const wasDisabled = el.disabled;
+  el.disabled = true;
+  el.classList.add('is-loading');
+  el.innerHTML = `<span class="btn-spinner" aria-hidden="true"></span><span>${label || '处理中...'}</span>`;
+
+  try {
+    return await task();
+  } finally {
+    el.disabled = wasDisabled;
+    el.classList.remove('is-loading');
+    el.innerHTML = originalHtml;
+  }
+}
+
 function adminLogout() {
   localStorage.removeItem('soundhub_token');
   localStorage.removeItem('soundhub_user');
@@ -69,6 +92,13 @@ async function loadAdminOverview() {
 }
 
 async function loadUsers() {
+  const tbodyEl = document.getElementById('users-tbody');
+  if (tbodyEl) {
+    tbodyEl.innerHTML = Array.from({ length: 3 })
+      .map(() => '<tr><td colspan="7"><div class="skeleton-line long"></div></td></tr>')
+      .join('');
+  }
+
   try {
     const res = await fetch('/api/admin/users', { headers: { 'Authorization': 'Bearer ' + token } });
     const json = await res.json();
@@ -118,33 +148,41 @@ async function submitPlanChange() {
   const durationDays = document.getElementById('modal-plan-days').value;
   const maxDevices = document.getElementById('modal-max-devices').value;
 
-  try {
-    const res = await fetch('/api/admin/users/plan', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ userId, plan, durationDays, maxDevices })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast(json.msg, 'success');
-      closePlanModal();
-      loadUsers();
-      loadAdminOverview();
-    } else {
-      showToast(json.error || '操作失败', 'error');
+  await withButtonLoading('btn-submit-plan', '正在授权', async () => {
+    try {
+      const res = await fetch('/api/admin/users/plan', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId, plan, durationDays, maxDevices })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(json.msg, 'success');
+        closePlanModal();
+        await Promise.all([loadUsers(), loadAdminOverview()]);
+      } else {
+        showToast(json.error || '操作失败', 'error');
+      }
+    } catch (e) {
+      showToast(e.message, 'error');
     }
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+  });
 }
 
 let cachedSettings = [];
 let availableSources = [];
 
 async function loadSystemSettings() {
+  const formContainer = document.getElementById('settings-form-container');
+  if (formContainer) {
+    formContainer.innerHTML = Array.from({ length: 4 })
+      .map(() => '<div class="skeleton-row"><div class="skeleton-line short"></div><div class="skeleton-line long"></div></div>')
+      .join('');
+  }
+
   try {
     try {
       const srcRes = await fetch('/api/admin/sources', { headers: { 'Authorization': 'Bearer ' + token } });
@@ -176,11 +214,19 @@ async function loadSystemSettings() {
         } else if (s.key === 'default_platform') {
           inputHtml = `
             <select id="setting-input-${s.key}" style="width:100%;box-sizing:border-box;padding:10px;background:#1a1a24;border:1px solid var(--border-color);color:#fff;border-radius:6px;font-size:14px;">
-              <option value="kw" ${s.value === 'kw' ? 'selected' : ''}>酷我音乐 (kw - 推荐)</option>
-              <option value="wy" ${s.value === 'wy' ? 'selected' : ''}>网易云音乐 (wy)</option>
-              <option value="tx" ${s.value === 'tx' ? 'selected' : ''}>QQ音乐 (tx)</option>
-              <option value="kg" ${s.value === 'kg' ? 'selected' : ''}>酷狗音乐 (kg)</option>
-              <option value="mg" ${s.value === 'mg' ? 'selected' : ''}>咪咕音乐 (mg)</option>
+              <option value="all" ${s.value === 'all' ? 'selected' : ''}>🔀 聚合搜索 (all - 全平台并发，推荐)</option>
+              <option value="kw" ${s.value === 'kw' ? 'selected' : ''}>🎵 酷我音乐 (kw)</option>
+              <option value="tx" ${s.value === 'tx' ? 'selected' : ''}>🐧 QQ音乐 (tx)</option>
+              <option value="kg" ${s.value === 'kg' ? 'selected' : ''}>🎤 酷狗音乐 (kg)</option>
+              <option value="mg" ${s.value === 'mg' ? 'selected' : ''}>📻 咪咕音乐 (mg)</option>
+              <option value="wy" ${s.value === 'wy' ? 'selected' : ''}>☁️ 网易云音乐 (wy)</option>
+            </select>
+          `;
+        } else if (s.key === 'allow_cross_source_fallback') {
+          inputHtml = `
+            <select id="setting-input-${s.key}" style="width:100%;box-sizing:border-box;padding:10px;background:#1a1a24;border:1px solid var(--border-color);color:#fff;border-radius:6px;font-size:14px;">
+              <option value="true" ${s.value === 'true' ? 'selected' : ''}>✅ 允许 (精确匹配同名同歌手同时长后才换源，推荐)</option>
+              <option value="false" ${s.value === 'false' ? 'selected' : ''}>⛔ 禁止 (所选音源无直链时直接放弃播放)</option>
             </select>
           `;
         } else {
@@ -209,25 +255,27 @@ async function saveSystemSettings() {
     return { key: s.key, value: input ? input.value : s.value };
   });
 
-  try {
-    const res = await fetch('/api/admin/settings', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ settings: updated })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast('🎉 ' + json.msg, 'success');
-      loadSystemSettings();
-    } else {
-      showToast(json.error || '保存失败', 'error');
+  await withButtonLoading('btn-save-settings', '正在热更新', async () => {
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ settings: updated })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast('🎉 ' + json.msg, 'success');
+        await loadSystemSettings();
+      } else {
+        showToast(json.error || '保存失败', 'error');
+      }
+    } catch (e) {
+      showToast(e.message, 'error');
     }
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+  });
 }
 
 function escapeHtml(str) {

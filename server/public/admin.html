@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>XiaoAi SoundHub - 超级管理后台</title>
-  <link rel="stylesheet" href="style.css?v=20260831_01">
+  <link rel="stylesheet" href="style.css?v=20260901_01">
   <style>
     .admin-container {
       max-width: 1200px;
@@ -178,7 +178,7 @@
       <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px;">
         <h3 style="margin-top: 0;">⚙️ 在线热调节系统全局参数 (无需重启服务即刻生效)</h3>
         <div id="settings-form-container"></div>
-        <button class="btn btn-primary" style="margin-top: 18px;" onclick="saveSystemSettings()">💾 保存并立即热生效</button>
+        <button class="btn btn-primary" id="btn-save-settings" style="margin-top: 18px;" onclick="saveSystemSettings()">💾 保存并立即热生效</button>
       </div>
     </div>
   </div>
@@ -206,11 +206,11 @@
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
         <button class="btn btn-secondary" onclick="closePlanModal()">取消</button>
-        <button class="btn btn-primary" onclick="submitPlanChange()">确认授权</button>
+        <button class="btn btn-primary" id="btn-submit-plan" onclick="submitPlanChange()">确认授权</button>
       </div>
     </div>
   </div>
 
-  <script src="admin.js?v=20260831_01"></script>
+  <script src="admin.js?v=20260901_01"></script>
 </body>
 </html>
