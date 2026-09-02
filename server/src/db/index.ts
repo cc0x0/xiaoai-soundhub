@@ -37,6 +37,9 @@ export interface SpeakerRow {
   updated_at: number;
 }
 
+/** What to do when the chosen source cannot produce a stream for a track. */
+export type FallbackPolicy = 'strict' | 'cross_source';
+
 export interface UserSettingsRow {
   user_id: string;
   /** LX custom source script file name (sources/*.js). */
@@ -48,6 +51,14 @@ export interface UserSettingsRow {
   custom_prefixes: string;
   enable_tts_chime: number;
   default_chime: string;
+  /**
+   * `strict` surfaces "this source needs credentials" instead of quietly
+   * playing another platform's recording; `cross_source` keeps the silent
+   * exact-match fallback so the speaker always makes a sound.
+   */
+  fallback_policy: FallbackPolicy;
+  /** AES-256-GCM encrypted JSON of per-platform account keys. */
+  source_credentials: string;
 }
 
 export interface SystemSettingRow {
@@ -123,6 +134,8 @@ export class AppDatabase {
         custom_prefixes TEXT NOT NULL DEFAULT '[]',
         enable_tts_chime INTEGER NOT NULL DEFAULT 1,
         default_chime TEXT NOT NULL DEFAULT 'dingdong',
+        fallback_policy TEXT NOT NULL DEFAULT 'cross_source',
+        source_credentials TEXT NOT NULL DEFAULT '',
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
 
@@ -160,6 +173,8 @@ export class AppDatabase {
    */
   private runMigrations(): void {
     this.addColumnIfMissing('user_settings', 'search_platform', "TEXT NOT NULL DEFAULT 'all'");
+    this.addColumnIfMissing('user_settings', 'fallback_policy', "TEXT NOT NULL DEFAULT 'cross_source'");
+    this.addColumnIfMissing('user_settings', 'source_credentials', "TEXT NOT NULL DEFAULT ''");
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string): void {
@@ -204,7 +219,7 @@ export class AppDatabase {
       ['switch_buffer_ms', '2000', 'scheduler', '切歌等待缓冲区冗余时间 (毫秒)'],
       ['chime_delay_ms', '1400', 'audio', '提示音播放与语音朗读间隔等待延时 (毫秒)'],
       ['default_platform', 'all', 'source', '默认搜索音源渠道 (all=聚合搜索 / kw / wy / tx / kg / mg)'],
-      ['allow_cross_source_fallback', 'true', 'source', '所选音源无直链时，是否允许"精确匹配同一首歌"跨平台兜底取流 (true/false)'],
+      ['allow_cross_source_fallback', 'true', 'source', '全站默认：所选音源无直链时是否允许"精确匹配同一首歌"跨平台兜底取流 (true/false)。租户可在个人偏好中以 strict / cross_source 覆盖此默认值'],
       ['allow_registration', 'true', 'auth', '是否允许新用户注册 (true/false)'],
       ['system_notice', '欢迎使用 XiaoAi SoundHub 小爱全屋音乐声枢！', 'general', '全站公告信息']
     ];
@@ -391,7 +406,7 @@ export class AppDatabase {
     const updated = { ...current, ...patch };
     this.db.prepare(`
       UPDATE user_settings
-      SET active_source = ?, search_platform = ?, preferred_quality = ?, custom_stop_keywords = ?, custom_prefixes = ?, enable_tts_chime = ?, default_chime = ?
+      SET active_source = ?, search_platform = ?, preferred_quality = ?, custom_stop_keywords = ?, custom_prefixes = ?, enable_tts_chime = ?, default_chime = ?, fallback_policy = ?, source_credentials = ?
       WHERE user_id = ?
     `).run(
       updated.active_source,
@@ -401,6 +416,8 @@ export class AppDatabase {
       updated.custom_prefixes,
       updated.enable_tts_chime,
       updated.default_chime,
+      updated.fallback_policy === 'strict' ? 'strict' : 'cross_source',
+      updated.source_credentials ?? '',
       userId
     );
   }
@@ -418,5 +435,50 @@ export class AppDatabase {
   public updateSystemSetting(key: string, value: string): void {
     const now = Date.now();
     this.db.prepare('UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?').run(value, now, key);
+  }
+
+  // ====== 音源账号凭证 (AES-256-GCM 加密落库) ======
+
+  /**
+   * Decrypted per-platform credential store for one tenant.
+   * Returns {} when nothing is configured or the blob no longer decrypts (for
+   * example after SECURITY_SALT was rotated) — a stale blob must never throw and
+   * take playback down with it.
+   */
+  public getSourceCredentials(userId: string, secretKey: string): Record<string, Record<string, string>> {
+    const raw = this.getUserSettings(userId).source_credentials;
+    if (!raw) return {};
+    const json = SecurityCrypto.decrypt(raw, secretKey);
+    if (!json) return {};
+    try {
+      const parsed = JSON.parse(json);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Replace one platform's credentials; an empty patch removes that platform. */
+  public setSourceCredential(
+    userId: string,
+    platform: string,
+    credential: Record<string, string> | null,
+    secretKey: string
+  ): void {
+    const store = this.getSourceCredentials(userId, secretKey);
+    if (!credential || Object.keys(credential).length === 0) {
+      delete store[platform];
+    } else {
+      store[platform] = credential;
+    }
+    const encrypted = Object.keys(store).length
+      ? SecurityCrypto.encrypt(JSON.stringify(store), secretKey)
+      : '';
+    this.db.prepare('UPDATE user_settings SET source_credentials = ? WHERE user_id = ?').run(encrypted, userId);
+  }
+
+  /** Platform ids this tenant has stored credentials for, for status display. */
+  public listCredentialedPlatforms(userId: string, secretKey: string): string[] {
+    return Object.keys(this.getSourceCredentials(userId, secretKey));
   }
 }

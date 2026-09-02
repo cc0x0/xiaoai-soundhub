@@ -3,17 +3,43 @@
  * 负责管理各音箱的播放列表、自动切歌、后台预解析下一首歌曲
  */
 
-import { MusicItem, PlayQueueItem } from '../types/index.js';
+import { MusicItem, PlayQueueItem, ResolveFailureReason } from '../types/index.js';
 import { SourceEngine } from '../source_engine/sandbox.js';
+import { CredentialStore } from '../source_engine/platforms.js';
 import { XiaoAiClient } from '../speaker/client.js';
 import { StreamProxy } from '../proxy/stream.js';
 import { AppDatabase } from '../db/index.js';
+
+/**
+ * Outcome of a playback attempt. Carries the reason on failure so the API can
+ * tell the user *why* nothing played — "QQ音乐 needs credentials" is a fixable
+ * problem, and swallowing it into a bare `false` is what made the old behaviour
+ * feel like a silent bug.
+ */
+export interface PlayResult {
+  ok: boolean;
+  reason?: ResolveFailureReason;
+  message?: string;
+  /** Platform the stream actually came from, when it differs from the request. */
+  resolvedSource?: string;
+  /** True when a same-recording copy on another platform was used. */
+  crossSource?: boolean;
+}
+
+/** Everything the scheduler needs to resolve a stream for one tenant's device. */
+export interface PlaybackContext {
+  client?: XiaoAiClient;
+  quality?: string;
+  /** Tenant id, used to read their credentials and fallback policy. */
+  userId?: string;
+}
 
 export class PlayScheduler {
   private sourceEngine: SourceEngine;
   private fallbackClient: XiaoAiClient;
   private publicBaseUrl: string;
   private db?: AppDatabase;
+  private securitySalt: string;
   private currentPlayState: Map<string, PlayQueueItem> = new Map();
   private playlist: Map<string, MusicItem[]> = new Map();
   private currentIndex: Map<string, number> = new Map();
@@ -21,12 +47,21 @@ export class PlayScheduler {
   private didClientMap: Map<string, XiaoAiClient> = new Map();
   /** Preferred playback quality per device, from the owning tenant's settings. */
   private didQuality: Map<string, string> = new Map();
+  /** Owning tenant per device, so resolution can read their credentials. */
+  private didUserId: Map<string, string> = new Map();
 
-  constructor(sourceEngine: SourceEngine, client: XiaoAiClient, publicBaseUrl: string, db?: AppDatabase) {
+  constructor(
+    sourceEngine: SourceEngine,
+    client: XiaoAiClient,
+    publicBaseUrl: string,
+    db?: AppDatabase,
+    securitySalt = ''
+  ) {
     this.sourceEngine = sourceEngine;
     this.fallbackClient = client;
     this.publicBaseUrl = publicBaseUrl;
     this.db = db;
+    this.securitySalt = securitySalt;
   }
 
   private getClient(did: string, client?: XiaoAiClient): XiaoAiClient {
@@ -37,48 +72,54 @@ export class PlayScheduler {
     return this.didClientMap.get(did) || this.fallbackClient;
   }
 
+  /** Remember per-device context so later next/prev keep the same tenant scope. */
+  private applyContext(did: string, ctx?: PlaybackContext): void {
+    if (!ctx) return;
+    if (ctx.client) this.didClientMap.set(did, ctx.client);
+    if (ctx.quality) this.didQuality.set(did, ctx.quality);
+    if (ctx.userId) this.didUserId.set(did, ctx.userId);
+  }
+
   public async playMusicList(
     did: string,
     list: MusicItem[],
     startIndex = 0,
-    client?: XiaoAiClient,
-    quality?: string
-  ): Promise<boolean> {
-    if (!list || list.length === 0) return false;
-    if (client) this.didClientMap.set(did, client);
-    if (quality) this.didQuality.set(did, quality);
+    ctx?: PlaybackContext
+  ): Promise<PlayResult> {
+    if (!list || list.length === 0) {
+      return { ok: false, reason: 'not_available', message: '播放列表为空' };
+    }
+    this.applyContext(did, ctx);
     this.playlist.set(did, list);
     this.currentIndex.set(did, startIndex);
     return await this.playCurrentIndex(did);
   }
 
-  public async playSingle(
-    did: string,
-    item: MusicItem,
-    client?: XiaoAiClient,
-    quality?: string
-  ): Promise<boolean> {
-    if (client) this.didClientMap.set(did, client);
-    if (quality) this.didQuality.set(did, quality);
+  public async playSingle(did: string, item: MusicItem, ctx?: PlaybackContext): Promise<PlayResult> {
+    this.applyContext(did, ctx);
     this.playlist.set(did, [item]);
     this.currentIndex.set(did, 0);
     return await this.playCurrentIndex(did);
   }
 
-  public async next(did: string, client?: XiaoAiClient): Promise<boolean> {
+  public async next(did: string, client?: XiaoAiClient): Promise<PlayResult> {
     if (client) this.didClientMap.set(did, client);
     const list = this.playlist.get(did) || [];
-    if (list.length === 0) return false;
+    if (list.length === 0) {
+      return { ok: false, reason: 'not_available', message: '当前播放队列为空' };
+    }
     const current = this.currentIndex.get(did) || 0;
     const nextIdx = (current + 1) % list.length;
     this.currentIndex.set(did, nextIdx);
     return await this.playCurrentIndex(did);
   }
 
-  public async prev(did: string, client?: XiaoAiClient): Promise<boolean> {
+  public async prev(did: string, client?: XiaoAiClient): Promise<PlayResult> {
     if (client) this.didClientMap.set(did, client);
     const list = this.playlist.get(did) || [];
-    if (list.length === 0) return false;
+    if (list.length === 0) {
+      return { ok: false, reason: 'not_available', message: '当前播放队列为空' };
+    }
     const current = this.currentIndex.get(did) || 0;
     const prevIdx = (current - 1 + list.length) % list.length;
     this.currentIndex.set(did, prevIdx);
@@ -102,10 +143,12 @@ export class PlayScheduler {
     return await activeClient.pause({ did });
   }
 
-  public async resume(did: string, client?: XiaoAiClient): Promise<boolean> {
+  public async resume(did: string, client?: XiaoAiClient): Promise<PlayResult> {
     if (client) this.didClientMap.set(did, client);
     const current = this.currentPlayState.get(did);
-    if (!current) return false;
+    if (!current) {
+      return { ok: false, reason: 'not_available', message: '该音箱当前没有可恢复的播放任务' };
+    }
     console.log(`[PlayScheduler] 为音箱 [${did}] 恢复音乐播放: ${current.music.singer} - ${current.music.name}`);
     return await this.playCurrentIndex(did);
   }
@@ -132,12 +175,38 @@ export class PlayScheduler {
     }
   }
 
-  private async playCurrentIndex(did: string): Promise<boolean> {
+  /**
+   * Resolve the effective fallback policy for a device.
+   *
+   * The tenant's own `strict` / `cross_source` choice wins; the global system
+   * setting is only the default for tenants who never expressed one. Strict
+   * means: never quietly substitute another platform's recording — report the
+   * reason instead.
+   */
+  private allowCrossSourceFor(userId?: string): boolean {
+    const globalAllowed =
+      this.db?.getSystemSetting('allow_cross_source_fallback', 'true') !== 'false';
+    if (!userId || !this.db) return globalAllowed;
+    const policy = this.db.getUserSettings(userId)?.fallback_policy;
+    if (policy === 'strict') return false;
+    if (policy === 'cross_source') return true;
+    return globalAllowed;
+  }
+
+  private credentialsFor(userId?: string): CredentialStore | undefined {
+    if (!userId || !this.db) return undefined;
+    const store = this.db.getSourceCredentials(userId, this.securitySalt);
+    return Object.keys(store).length > 0 ? (store as CredentialStore) : undefined;
+  }
+
+  private async playCurrentIndex(did: string): Promise<PlayResult> {
     this.clearTimer(did);
     const list = this.playlist.get(did) || [];
     const idx = this.currentIndex.get(did) || 0;
     const music = list[idx];
-    if (!music) return false;
+    if (!music) {
+      return { ok: false, reason: 'not_available', message: '播放队列中没有可播放的歌曲' };
+    }
 
     console.log(
       `[PlayScheduler] 音箱 [${did}] 开始解析歌曲: ${music.singer} - ${music.name} [音源: ${music.source}]`
@@ -145,12 +214,22 @@ export class PlayScheduler {
 
     // 1. 获取音源直链（严格沿用该曲目自身所属音源，不擅自换源）
     const quality = this.didQuality.get(did) || '320k';
-    const allowCrossSource =
-      this.db?.getSystemSetting('allow_cross_source_fallback', 'false') === 'true';
-    const urlRes = await this.sourceEngine.getMusicUrl(music, { quality, allowCrossSource });
+    const userId = this.didUserId.get(did);
+    const allowCrossSource = this.allowCrossSourceFor(userId);
+    const urlRes = await this.sourceEngine.getMusicUrl(music, {
+      quality,
+      allowCrossSource,
+      credentials: this.credentialsFor(userId),
+    });
     if (!urlRes || !urlRes.url) {
-      console.warn(`[PlayScheduler] 无法获取歌曲播放直链: ${music.name} [音源: ${music.source}]`);
-      return false;
+      console.warn(
+        `[PlayScheduler] 无法获取歌曲播放直链: ${music.name} [音源: ${music.source}] 原因: ${urlRes?.reason || 'unknown'}`
+      );
+      return {
+        ok: false,
+        reason: urlRes?.reason || 'not_available',
+        message: urlRes?.message || `《${music.name}》暂无可用播放地址`,
+      };
     }
 
     // 2. 包装中继代理地址（解决小爱防盗链）
@@ -193,7 +272,18 @@ export class PlayScheduler {
       this.timers.set(did, timer);
     }
 
-    return ok;
+    if (!ok) {
+      return { ok: false, reason: 'not_available', message: '直链已取到，但音箱未接受播放指令' };
+    }
+
+    return {
+      ok: true,
+      resolvedSource: urlRes.resolvedSource,
+      crossSource: urlRes.crossSource,
+      message: urlRes.crossSource
+        ? `已用其他平台的同一首录音播放《${music.name}》`
+        : undefined,
+    };
   }
 }
 

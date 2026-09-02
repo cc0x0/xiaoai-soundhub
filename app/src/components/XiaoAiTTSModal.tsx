@@ -12,7 +12,13 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native'
-import { xiaoaiService, type XiaoAiDevice } from '@/services/xiaoaiService'
+import {
+  xiaoaiService,
+  AuthExpiredError,
+  type XiaoAiDevice,
+  type ChimeType,
+} from '@/services/xiaoaiService'
+import { XiaoAiAuthModal } from '@/components/XiaoAiAuthModal'
 import { useTheme } from '@/store/theme/hook'
 import { createStyle, toast } from '@/utils/tools'
 
@@ -29,6 +35,14 @@ const PRESETS = [
   '出门记得带好钥匙和手机哦。',
 ]
 
+/** Prelude tones the server can play before reading the text. */
+const CHIMES: Array<{ value: ChimeType, label: string }> = [
+  { value: 'dingdong', label: '🔔 叮咚' },
+  { value: 'gentle', label: '✨ 和弦' },
+  { value: 'marimba', label: '💧 水滴' },
+  { value: 'none', label: '🚫 无' },
+]
+
 export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
   const theme = useTheme()
   const [text, setText] = useState<string>('')
@@ -36,8 +50,18 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
   const [selectedDids, setSelectedDids] = useState<string[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [sending, setSending] = useState<boolean>(false)
+  const [chime, setChime] = useState<ChimeType>('dingdong')
+  const [authVisible, setAuthVisible] = useState<boolean>(false)
+  const [needsAuth, setNeedsAuth] = useState<boolean>(false)
 
   const loadDevices = useCallback(async() => {
+    if (!xiaoaiService.hasToken()) {
+      setNeedsAuth(true)
+      setDevices([])
+      return
+    }
+
+    setNeedsAuth(false)
     setLoading(true)
     try {
       const list = await xiaoaiService.getDevices(true)
@@ -48,7 +72,12 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
         void xiaoaiService.setSelectedDids(all)
       }
     } catch (err: unknown) {
-      toast(`拉取设备失败: ${(err as Error).message}`)
+      if (err instanceof AuthExpiredError) {
+        setNeedsAuth(true)
+        setDevices([])
+      } else {
+        toast(`拉取设备失败: ${(err as Error).message}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -58,6 +87,11 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
     if (visible) {
       void loadDevices()
       setSelectedDids(xiaoaiService.getSelectedDids())
+      // Seed the picker from the tenant's saved default so the app agrees with
+      // what the web console shows. A failure here is not worth surfacing.
+      void xiaoaiService.getSettings()
+        .then((s) => { setChime((s.default_chime || 'dingdong') as ChimeType) })
+        .catch(() => {})
     }
   }, [visible, loadDevices])
 
@@ -73,6 +107,10 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
   }
 
   const handleSend = async() => {
+    if (!xiaoaiService.hasToken()) {
+      setAuthVisible(true)
+      return
+    }
     const content = text.trim()
     if (!content) {
       toast('请输入要播报的文本')
@@ -85,11 +123,16 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
 
     setSending(true)
     try {
-      await xiaoaiService.sendTTS(content, selectedDids)
+      await xiaoaiService.sendTTS(content, selectedDids, chime)
       toast(`📢 已向 ${selectedDids.length} 台小爱音箱下发语音播报！`)
       onClose()
     } catch (err: unknown) {
-      toast(`播报失败: ${(err as Error).message}`)
+      if (err instanceof AuthExpiredError) {
+        setNeedsAuth(true)
+        setAuthVisible(true)
+      } else {
+        toast(`播报失败: ${(err as Error).message}`)
+      }
     } finally {
       setSending(false)
     }
@@ -134,10 +177,52 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
           </View>
 
           <Text style={[styles.subTitle, { color: theme['c-font-label'], marginTop: 10, marginBottom: 8 }]}>
+            前导提示音
+          </Text>
+          <View style={styles.chimeRow}>
+            {CHIMES.map((item) => {
+              const active = chime === item.value
+              return (
+                <TouchableOpacity
+                  key={item.value}
+                  style={[
+                    styles.chimeChip,
+                    { borderColor: active ? theme['c-primary'] : theme['c-200'] },
+                    active && { backgroundColor: `${theme['c-primary']}20` },
+                  ]}
+                  onPress={() => { setChime(item.value) }}
+                >
+                  <Text
+                    style={[
+                      styles.chimeText,
+                      { color: active ? theme['c-primary'] : theme['c-font-label'] },
+                      active && styles.chimeTextActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+
+          <Text style={[styles.subTitle, { color: theme['c-font-label'], marginTop: 10, marginBottom: 8 }]}>
             目标音箱 ({selectedDids.length}/{devices.length})
           </Text>
 
-          {loading ? (
+          {needsAuth ? (
+            <View>
+              <Text style={[styles.hintText, { color: theme['c-font-label'] }]}>
+                语音播报需要绑定云端账号。本机播放不受影响。
+              </Text>
+              <TouchableOpacity
+                style={[styles.sendBtn, { backgroundColor: theme['c-primary'], marginTop: 8 }]}
+                onPress={() => { setAuthVisible(true) }}
+              >
+                <Text style={styles.sendBtnText}>立即绑定云端</Text>
+              </TouchableOpacity>
+            </View>
+          ) : loading ? (
             <ActivityIndicator size="small" color={theme['c-primary']} style={{ marginVertical: 20 }} />
           ) : (
             <ScrollView style={styles.deviceList}>
@@ -163,19 +248,28 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
             </ScrollView>
           )}
 
-          <TouchableOpacity
-            style={[styles.sendBtn, { backgroundColor: theme['c-primary'] }]}
-            onPress={handleSend}
-            disabled={sending}
-          >
-            {sending ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.sendBtnText}>一键全屋广播播报</Text>
-            )}
-          </TouchableOpacity>
+          {!needsAuth && (
+            <TouchableOpacity
+              style={[styles.sendBtn, { backgroundColor: theme['c-primary'] }]}
+              onPress={handleSend}
+              disabled={sending}
+            >
+              {sending ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.sendBtnText}>一键全屋广播播报</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      <XiaoAiAuthModal
+        visible={authVisible}
+        onClose={() => { setAuthVisible(false) }}
+        onAuthorized={() => { void loadDevices() }}
+        purpose="全屋语音播报需要绑定云端账号才能下发到音箱。"
+      />
     </Modal>
   )
 }
@@ -228,6 +322,30 @@ const styles = createStyle({
   },
   subTitle: {
     fontSize: 13,
+  },
+  hintText: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  chimeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  chimeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  chimeText: {
+    fontSize: 12,
+  },
+  chimeTextActive: {
+    fontWeight: 'bold',
   },
   deviceList: {
     maxHeight: 180,

@@ -189,10 +189,23 @@ export class MultiTenantSpeakerManager {
         `[MultiTenant] 用户 [${userId}] 搜索音乐: ${cmd.keyword} [音源: ${platform} | 音质: ${quality}]`
       );
       const searchRes = await this.sourceEngine.search(cmd.keyword, 1, 20, platform);
-      if (searchRes.list.length > 0) {
-        await this.scheduler.playMusicList(did, searchRes.list, 0, client, quality);
-      } else {
+      if (searchRes.list.length === 0) {
         console.warn(`[MultiTenant] 用户 [${userId}] 在音源 [${platform}] 下未搜索到: ${cmd.keyword}`);
+        await this.speakFailure(client, did, `没有找到${cmd.keyword}`);
+        return;
+      }
+
+      const result = await this.scheduler.playMusicList(did, searchRes.list, 0, {
+        client,
+        quality,
+        userId,
+      });
+      // The speaker was already cut off to pre-empt the official prompt, so a
+      // silent failure leaves the user staring at a dead device. Say what went
+      // wrong out loud — that is the only feedback channel a voice user has.
+      if (!result.ok) {
+        console.warn(`[MultiTenant] 用户 [${userId}] 点歌失败: ${result.message}`);
+        await this.speakFailure(client, did, result.message || '暂时无法播放这首歌');
       }
     } else if (cmd.type === 'stop') {
       await this.scheduler.stop(did, client);
@@ -207,5 +220,17 @@ export class MultiTenantSpeakerManager {
     } else if (cmd.type === 'volume' && cmd.volume !== undefined) {
       await client.setVolume(cmd.volume, { did });
     }
+  }
+
+  /**
+   * Read a failure back to the user on the speaker itself, without a chime —
+   * a ding before an error message just sounds like something broke twice.
+   * Long messages are trimmed because the setup hints they contain ("设置 →
+   * 音源账号") only make sense on screen.
+   */
+  private async speakFailure(client: XiaoAiClient, did: string, message: string): Promise<void> {
+    const spoken = message.split(/[（(]/)[0].trim().slice(0, 60);
+    if (!spoken) return;
+    await client.tts(spoken, { did, chime: false }).catch(() => {});
   }
 }

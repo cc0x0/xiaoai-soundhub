@@ -305,6 +305,29 @@
         </select>
       </div>
 
+      <div class="settings-field">
+        <label class="settings-label">所选音源取不到直链时</label>
+        <select id="user-pref-fallback-policy" class="settings-input">
+          <option value="cross_source">🔄 自动兜底：换用其他平台的同一首录音（保证一定出声）</option>
+          <option value="strict">🎯 严格模式：直接提示原因，不替换其他平台</option>
+        </select>
+        <div class="settings-hint">
+          自动兜底会严格比对"同歌名 + 同歌手 + 时长相差 8 秒内"，不会放成翻唱或片段；
+          严格模式则会明确告知"该平台需要配置账号凭证"，便于你决定是否配置。
+        </div>
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label">音源账号凭证</label>
+        <div id="user-cred-list" style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="font-size: 12px; color: var(--text-muted);">加载中…</div>
+        </div>
+        <div class="settings-hint">
+          QQ音乐、网易云的高音质直链由平台按登录态签发。配置你自己的账号凭证后，
+          系统将直连官方接口取流，音质由你的订阅决定。凭证以 AES-256-GCM 加密存储，页面不会回显明文。
+        </div>
+      </div>
+
       <div style="display: flex; justify-content: flex-end; gap: 8px;">
         <button class="btn btn-secondary" onclick="closeUserSettingsModal()">取消</button>
         <button class="btn btn-primary" id="btn-save-user-settings">💾 保存个性化偏好</button>
@@ -312,7 +335,23 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260901_01"></script>
+  <!-- 单平台音源凭证录入弹窗 -->
+  <div class="modal-overlay" id="cred-edit-modal" style="display: none;">
+    <div class="auth-card" style="max-width: 440px;">
+      <div class="auth-icon">🔑</div>
+      <h3 id="cred-edit-title">配置音源账号</h3>
+      <p class="auth-desc" style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 14px;">
+        在浏览器登录该音乐平台后，从开发者工具的 Cookie 中复制对应字段填入即可。
+      </p>
+      <div id="cred-edit-fields" style="display: flex; flex-direction: column; gap: 10px;"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeCredEditModal()">取消</button>
+        <button class="btn btn-primary" id="btn-save-cred">🔒 加密保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260902_01"></script>
 </body>
 </html>
 

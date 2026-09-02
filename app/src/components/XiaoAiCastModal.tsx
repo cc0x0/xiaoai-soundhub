@@ -11,8 +11,14 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native'
-import { xiaoaiService, type XiaoAiDevice } from '@/services/xiaoaiService'
+import {
+  xiaoaiService,
+  CastFailedError,
+  AuthExpiredError,
+  type XiaoAiDevice,
+} from '@/services/xiaoaiService'
 import { normalizeMusicInfo, toCastParams } from '@/services/soundhubMapper'
+import { XiaoAiAuthModal } from '@/components/XiaoAiAuthModal'
 import { usePlayMusicInfo } from '@/store/player/hook'
 import { useTheme } from '@/store/theme/hook'
 import { createStyle, toast } from '@/utils/tools'
@@ -35,6 +41,8 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
   const [loading, setLoading] = useState<boolean>(false)
   const [selectedDids, setSelectedDids] = useState<string[]>([])
   const [casting, setCasting] = useState<boolean>(false)
+  const [authVisible, setAuthVisible] = useState<boolean>(false)
+  const [needsAuth, setNeedsAuth] = useState<boolean>(false)
 
   // An explicitly passed track wins; otherwise cast what is playing now. The
   // player's current item may be a download task wrapping the real track.
@@ -44,6 +52,15 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
   const mapped = targetMusic ? toCastParams(targetMusic) : null
 
   const loadDevices = useCallback(async() => {
+    // Lazy auth: the device list is the first thing that needs the cloud, so an
+    // unbound user is told what to do here instead of hitting a 401 later.
+    if (!xiaoaiService.hasToken()) {
+      setNeedsAuth(true)
+      setDevices([])
+      return
+    }
+
+    setNeedsAuth(false)
     setLoading(true)
     try {
       const list = await xiaoaiService.getDevices(true)
@@ -54,7 +71,14 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
         void xiaoaiService.setSelectedDids(defaultDids)
       }
     } catch (err: unknown) {
-      toast(`拉取音箱失败: ${(err as Error).message}`)
+      if (err instanceof AuthExpiredError) {
+        // The token was cleared by the service; show the bind prompt instead of
+        // an error the user cannot act on.
+        setNeedsAuth(true)
+        setDevices([])
+      } else {
+        toast(`拉取音箱失败: ${(err as Error).message}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -85,6 +109,10 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
   }
 
   const handleCast = async() => {
+    if (!xiaoaiService.hasToken()) {
+      setAuthVisible(true)
+      return
+    }
     if (!targetMusic) {
       toast('当前没有可投播的歌曲，请先播放或选中一首')
       return
@@ -100,11 +128,23 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
 
     setCasting(true)
     try {
-      await xiaoaiService.castSong(mapped.music, selectedDids)
-      toast(`已成功投播至 ${selectedDids.length} 台小爱音箱 🎵`)
+      const outcome = await xiaoaiService.castSong(mapped.music, selectedDids)
+      // Name the substitution when it happened: the recording that plays is not
+      // the one from the source the user picked, and that is worth knowing.
+      toast(outcome.crossSource
+        ? `已投播至 ${selectedDids.length} 台音箱（已换用其他平台的同一首录音）`
+        : `已成功投播至 ${selectedDids.length} 台小爱音箱 🎵`)
       onClose()
     } catch (err: unknown) {
-      toast(`投播失败: ${(err as Error).message}`)
+      if (err instanceof AuthExpiredError) {
+        setNeedsAuth(true)
+        setAuthVisible(true)
+      } else if (err instanceof CastFailedError && err.reason === 'needs_credentials') {
+        // Fixable in the web console; say where rather than just failing.
+        toast(`${err.message}，请在云端控制台配置后重试`)
+      } else {
+        toast(`投播失败: ${(err as Error).message}`)
+      }
     } finally {
       setCasting(false)
     }
@@ -160,7 +200,19 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
             </View>
           </View>
 
-          {loading ? (
+          {needsAuth ? (
+            <View style={styles.authPrompt}>
+              <Text style={[styles.emptyText, { color: theme['c-font-label'], marginVertical: 12 }]}>
+                尚未绑定云端账号。本机播放不受影响，绑定后即可投播到小爱音箱。
+              </Text>
+              <TouchableOpacity
+                style={[styles.bindBtn, { backgroundColor: theme['c-primary'] }]}
+                onPress={() => { setAuthVisible(true) }}
+              >
+                <Text style={styles.bindBtnText}>立即绑定云端</Text>
+              </TouchableOpacity>
+            </View>
+          ) : loading ? (
             <ActivityIndicator size="large" color={theme['c-primary']} style={{ marginVertical: 30 }} />
           ) : (
             <ScrollView style={styles.deviceList}>
@@ -197,23 +249,32 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
             </ScrollView>
           )}
 
-          <TouchableOpacity
-            style={[
-              styles.castBtn,
-              { backgroundColor: theme['c-primary'] },
-              (casting || !mapped?.ok) && styles.castBtnDisabled,
-            ]}
-            onPress={handleCast}
-            disabled={casting || !mapped?.ok}
-          >
-            {casting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.castBtnText}>一键开始投播</Text>
-            )}
-          </TouchableOpacity>
+          {!needsAuth && (
+            <TouchableOpacity
+              style={[
+                styles.castBtn,
+                { backgroundColor: theme['c-primary'] },
+                (casting || !mapped?.ok) && styles.castBtnDisabled,
+              ]}
+              onPress={handleCast}
+              disabled={casting || !mapped?.ok}
+            >
+              {casting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.castBtnText}>一键开始投播</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      <XiaoAiAuthModal
+        visible={authVisible}
+        onClose={() => { setAuthVisible(false) }}
+        onAuthorized={() => { void loadDevices() }}
+        purpose="投播到小爱音箱需要绑定云端账号。本机播放不受影响，随时可以只听本地。"
+      />
     </Modal>
   )
 }
@@ -317,6 +378,21 @@ const styles = createStyle({
     textAlign: 'center',
     marginVertical: 30,
     fontSize: 13,
+    lineHeight: 19,
+  },
+  authPrompt: {
+    paddingVertical: 6,
+  },
+  bindBtn: {
+    padding: 13,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  bindBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
   },
   castBtn: {
     padding: 14,

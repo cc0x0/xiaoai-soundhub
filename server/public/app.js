@@ -267,6 +267,7 @@ function bindEvents() {
     if (m) m.style.display = 'flex';
   });
   document.getElementById('btn-save-user-settings')?.addEventListener('click', saveUserSettings);
+  document.getElementById('btn-save-cred')?.addEventListener('click', saveSourceCredential);
 
   // 快捷常用语
   document.querySelectorAll('.chip').forEach((chip) => {
@@ -346,11 +347,144 @@ async function loadUserSettings() {
 
       const platformSelect = document.getElementById('user-pref-search-platform');
       if (platformSelect) platformSelect.value = s.search_platform || 'all';
+
+      const policySelect = document.getElementById('user-pref-fallback-policy');
+      if (policySelect) policySelect.value = s.fallback_policy || 'cross_source';
     }
   } catch (e) {
     console.error('Load user settings failed:', e);
   }
+
+  loadSourceCredentials();
 }
+
+// ====== 音源账号凭证 ======
+
+/** Field metadata for the platform currently open in the credential editor. */
+let credEditState = { platform: '', name: '', fields: [] };
+
+async function loadSourceCredentials() {
+  const list = document.getElementById('user-cred-list');
+  if (!list) return;
+
+  try {
+    const res = await authFetch('/api/user/source-credentials');
+    const json = await res.json();
+    if (!json.ok) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">凭证状态加载失败</div>';
+      return;
+    }
+
+    const platforms = json.data?.platforms || [];
+    list.innerHTML = platforms.map((p) => {
+      const badge = p.configured
+        ? '<span style="font-size:11px;color:#22c55e;">✅ 已配置</span>'
+        : '<span style="font-size:11px;color:var(--text-muted);">未配置</span>';
+      const clearBtn = p.configured
+        ? `<button class="btn btn-secondary btn-sm" onclick="clearSourceCredential('${p.id}')">清除</button>`
+        : '';
+      return `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:rgba(255,255,255,0.04);border:1px solid var(--border-color);border-radius:6px;">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <span style="font-size:13px;">${p.name}</span>
+            ${badge}
+          </div>
+          <div style="display:flex;gap:6px;">
+            ${clearBtn}
+            <button class="btn btn-primary btn-sm" onclick="openCredEditModal('${p.id}')">
+              ${p.configured ? '更新' : '配置'}
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+
+    window.__credPlatforms = platforms;
+  } catch (e) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">凭证状态加载失败</div>';
+    console.error('Load source credentials failed:', e);
+  }
+}
+
+window.openCredEditModal = function (platformId) {
+  const platform = (window.__credPlatforms || []).find((p) => p.id === platformId);
+  if (!platform) return;
+
+  credEditState = { platform: platformId, name: platform.name, fields: platform.fields || [] };
+
+  const title = document.getElementById('cred-edit-title');
+  if (title) title.textContent = `配置 ${platform.name} 账号凭证`;
+
+  const container = document.getElementById('cred-edit-fields');
+  if (container) {
+    const inputStyle =
+      'width:100%;box-sizing:border-box;padding:10px;background:rgba(255,255,255,0.06);border:1px solid var(--border-color);color:#fff;border-radius:6px;font-size:13px;';
+    container.innerHTML = credEditState.fields.map((f) => `
+      <div>
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">${f.label}</label>
+        <input type="password" id="cred-field-${f.key}" placeholder="${f.hint}" style="${inputStyle}" autocomplete="off">
+      </div>`).join('') + `
+      <div>
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">或直接粘贴完整 Cookie (可选)</label>
+        <input type="password" id="cred-field-cookie" placeholder="填了完整 Cookie 就不必再单独填上面的字段" style="${inputStyle}" autocomplete="off">
+      </div>`;
+  }
+
+  const modal = document.getElementById('cred-edit-modal');
+  if (modal) modal.style.display = 'flex';
+};
+
+window.closeCredEditModal = function () {
+  const modal = document.getElementById('cred-edit-modal');
+  if (modal) modal.style.display = 'none';
+  // Clear the inputs on close so a credential never lingers in the DOM.
+  const container = document.getElementById('cred-edit-fields');
+  if (container) container.innerHTML = '';
+};
+
+async function saveSourceCredential() {
+  const credential = {};
+  for (const f of credEditState.fields) {
+    const el = document.getElementById(`cred-field-${f.key}`);
+    if (el && el.value.trim()) credential[f.key] = el.value.trim();
+  }
+  const cookieEl = document.getElementById('cred-field-cookie');
+  if (cookieEl && cookieEl.value.trim()) credential.cookie = cookieEl.value.trim();
+
+  if (Object.keys(credential).length === 0) {
+    showToast('请至少填写一项凭证内容', 'error');
+    return;
+  }
+
+  await withButtonLoading('btn-save-cred', '正在保存', async () => {
+    try {
+      const res = await authFetch('/api/user/source-credentials', {
+        method: 'POST',
+        body: JSON.stringify({ platform: credEditState.platform, credential })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(json.msg || '凭证已保存', 'success');
+        window.closeCredEditModal();
+        loadSourceCredentials();
+      } else {
+        showToast(json.error || '凭证保存失败', 'error');
+      }
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  });
+}
+
+window.clearSourceCredential = async function (platformId) {
+  try {
+    const res = await authFetch(`/api/user/source-credentials/${platformId}`, { method: 'DELETE' });
+    const json = await res.json();
+    showToast(json.ok ? (json.msg || '凭证已清除') : (json.error || '清除失败'), json.ok ? 'success' : 'error');
+    if (json.ok) loadSourceCredentials();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+};
 
 async function saveUserSettings() {
   const prefRaw = document.getElementById('user-pref-prefixes').value.trim();
@@ -358,6 +492,7 @@ async function saveUserSettings() {
   const preferred_quality = document.getElementById('user-pref-quality').value;
   const default_chime = document.getElementById('user-pref-chime').value;
   const search_platform = document.getElementById('user-pref-search-platform')?.value || 'all';
+  const fallback_policy = document.getElementById('user-pref-fallback-policy')?.value || 'cross_source';
 
   const custom_prefixes = prefRaw ? prefRaw.split(/[,，\s]+/).filter(Boolean) : [];
   const custom_stop_keywords = stopRaw ? stopRaw.split(/[,，\s]+/).filter(Boolean) : [];
@@ -372,6 +507,7 @@ async function saveUserSettings() {
           preferred_quality,
           default_chime,
           search_platform,
+          fallback_policy,
           enable_tts_chime: default_chime !== 'none' ? 1 : 0
         })
       });
@@ -941,8 +1077,23 @@ async function castSong(music, triggerBtn) {
         document.getElementById('player-artist').textContent = music.singer;
         isPlaying = true;
         document.getElementById('btn-toggle-play').textContent = '⏸️';
-        showToast(`🎵 正在投播: ${music.singer} - ${music.name}`, 'success');
+        // Say so when another platform's copy was substituted, otherwise the
+        // user has no way to know the recording isn't from the source they picked.
+        showToast(
+          json.data?.crossSource
+            ? `🎵 ${music.singer} - ${music.name}（已换用其他平台的同一首录音）`
+            : `🎵 正在投播: ${music.singer} - ${music.name}`,
+          'success'
+        );
         setTimeout(fetchStatus, 1200);
+      } else if (json.reason === 'needs_credentials') {
+        // Actionable failure: point straight at the fix instead of a dead end.
+        showToast(`${json.error}`, 'error');
+        setTimeout(() => {
+          if (confirm(`${json.error}\n\n现在去配置音源账号凭证？`)) {
+            document.getElementById('btn-open-settings-modal')?.click();
+          }
+        }, 300);
       } else {
         showToast(`投播失败: ${json.error}`, 'error');
       }

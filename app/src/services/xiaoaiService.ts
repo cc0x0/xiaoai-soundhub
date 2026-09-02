@@ -37,6 +37,62 @@ export interface CastMusicParams {
   raw?: any
 }
 
+/** One speaker as the cloud knows it, including its management flags. */
+export interface XiaoAiSpeaker {
+  did: string
+  name: string
+  model: string
+  hardware: string
+  is_gateway: number
+  is_ignored: number
+  is_listener_enabled: number
+}
+
+/** The tenant's server-side preferences, mirrored into the app. */
+export interface XiaoAiUserSettings {
+  search_platform: string
+  preferred_quality: string
+  default_chime: string
+  enable_tts_chime: number
+  fallback_policy: 'strict' | 'cross_source'
+}
+
+/** Prelude tone played before a TTS announcement. */
+export type ChimeType = 'dingdong' | 'gentle' | 'marimba' | 'none'
+
+export interface CastOutcome {
+  /** True when a same-recording copy from another platform was substituted. */
+  crossSource: boolean
+  msg: string
+}
+
+/**
+ * A cast that failed for a reason the user can act on.
+ * `reason` mirrors the server's ResolveFailureReason so the UI can offer the
+ * matching fix (bind an account, configure a source credential) instead of a
+ * dead-end toast.
+ */
+export class CastFailedError extends Error {
+  public readonly reason: string
+  constructor(message: string, reason: string) {
+    super(message)
+    this.name = 'CastFailedError'
+    this.reason = reason
+  }
+}
+
+/**
+ * The stored token was rejected. Thrown so callers can reopen the auth prompt
+ * rather than showing a toast the user cannot act on — an expired session looks
+ * identical to a network failure otherwise.
+ */
+export class AuthExpiredError extends Error {
+  constructor(message = '登录会话已过期，请重新登录') {
+    super(message)
+    this.name = 'AuthExpiredError'
+  }
+}
+
 /** Must match the placeholder shown in the XiaoAi settings panel. */
 export const DEFAULT_SERVER_URL = 'http://127.0.0.1:8989'
 
@@ -106,6 +162,11 @@ class XiaoAiService {
     await saveData(SOUNDHUB_SELECTED_DIDS_KEY, dids)
   }
 
+  /** True when a token is on hand. Does not prove the token is still valid. */
+  public hasToken(): boolean {
+    return this.token.length > 0
+  }
+
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -114,6 +175,59 @@ class XiaoAiService {
       headers.Authorization = `Bearer ${this.token}`
     }
     return headers
+  }
+
+  // ====== 鉴权 (惰性登录：只在需要云端能力时才要求) ======
+
+  /**
+   * Log in and keep the token. `register` creates the account first, for the
+   * "I don't have one yet" path in the same modal — one less trip to a browser.
+   */
+  public async login(username: string, password: string, register = false): Promise<string> {
+    const endpoint = register ? '/api/auth/register' : '/api/auth/login'
+    const response = await fetch(`${this.serverUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+
+    const json = await response.json()
+    if (!json.ok || !json.data?.token) {
+      throw new Error(json.error ? String(json.error) : (register ? '注册失败' : '登录失败'))
+    }
+
+    await this.setToken(String(json.data.token))
+    return String(json.data.username ?? json.data.user?.username ?? username)
+  }
+
+  /** Verify the stored token against the server; false means re-login needed. */
+  public async verifyToken(): Promise<boolean> {
+    if (!this.token) return false
+    try {
+      const response = await fetch(`${this.serverUrl}/api/auth/me`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      })
+      const json = await response.json()
+      return json.ok === true
+    } catch {
+      return false
+    }
+  }
+
+  public async logout(): Promise<void> {
+    await this.setToken('')
+    this.cachedDevices = []
+  }
+
+  /**
+   * Drop a token the server has rejected, so the next `hasToken()` check
+   * correctly reports "not bound" and the UI offers the login prompt.
+   */
+  private async handleUnauthorized(): Promise<never> {
+    await this.setToken('')
+    this.cachedDevices = []
+    throw new AuthExpiredError()
   }
 
   /**
@@ -129,6 +243,8 @@ class XiaoAiService {
         method: 'GET',
         headers: this.getHeaders(),
       })
+
+      if (response.status === 401) await this.handleUnauthorized()
 
       const json = await response.json()
       if (json.ok && Array.isArray(json.data)) {
@@ -163,6 +279,7 @@ class XiaoAiService {
       body: JSON.stringify(chime ? { text, dids, chime } : { text, dids }),
     })
 
+    if (response.status === 401) await this.handleUnauthorized()
     const json = await response.json()
     if (json.ok) {
       return (json.results ?? {}) as Record<string, boolean>
@@ -173,10 +290,11 @@ class XiaoAiService {
   /**
    * 投播歌曲到小爱音箱
    *
-   * The server answers `{ok, msg}` with no payload, so this resolves to void
-   * rather than pretending to return per-device results.
+   * Reports whether the stream ended up coming from another platform's copy of
+   * the recording, so the UI can say so rather than letting the user wonder why
+   * the version sounds different from the source they picked.
    */
-  public async castSong(music: CastMusicParams, targetDids?: string[]): Promise<void> {
+  public async castSong(music: CastMusicParams, targetDids?: string[]): Promise<CastOutcome> {
     const dids = targetDids && targetDids.length > 0 ? targetDids : this.selectedDids
     if (dids.length === 0) {
       throw new Error('请先选择要投播的小爱音箱')
@@ -188,9 +306,16 @@ class XiaoAiService {
       body: JSON.stringify({ music, dids }),
     })
 
+    if (response.status === 401) await this.handleUnauthorized()
     const json = await response.json()
     if (!json.ok) {
-      throw new Error(json.error ? String(json.error) : '投播歌曲失败')
+      const message = json.error ? String(json.error) : '投播歌曲失败'
+      throw new CastFailedError(message, String(json.reason ?? 'unknown'))
+    }
+
+    return {
+      crossSource: json.data?.crossSource === true,
+      msg: String(json.msg ?? '已投播'),
     }
   }
 
@@ -222,6 +347,7 @@ class XiaoAiService {
       body: JSON.stringify(body),
     })
 
+    if (response.status === 401) await this.handleUnauthorized()
     const json = await response.json()
     if (!json.ok) {
       throw new Error(json.error ? String(json.error) : '控制指令下发失败')
@@ -242,6 +368,80 @@ class XiaoAiService {
     const json = await response.json()
     if (json.ok) return json.data?.states ?? {}
     throw new Error(json.error ? String(json.error) : '获取播放状态失败')
+  }
+
+  // ====== 设备管理 (主网关 / 屏蔽 / 语音监听) ======
+
+  /**
+   * Speakers with their management flags, which `/api/devices` does not carry.
+   * Requires a token — the flags are per-tenant state.
+   */
+  public async getSpeakers(): Promise<XiaoAiSpeaker[]> {
+    const response = await fetch(`${this.serverUrl}/api/user/speakers`, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    })
+    if (response.status === 401) await this.handleUnauthorized()
+    const json = await response.json()
+    if (json.ok && Array.isArray(json.data)) return json.data as XiaoAiSpeaker[]
+    throw new Error(json.error ? String(json.error) : '获取音箱管理信息失败')
+  }
+
+  /** Designate the speaker whose voice commands drive playback. */
+  public async setGateway(did: string): Promise<string> {
+    return await this.postUserAction('/api/user/speakers/gateway', { did }, '设置主网关失败')
+  }
+
+  public async setSpeakerIgnored(did: string, isIgnored: boolean): Promise<string> {
+    return await this.postUserAction('/api/user/speakers/ignore', { did, isIgnored }, '切换屏蔽状态失败')
+  }
+
+  public async setSpeakerListener(did: string, isEnabled: boolean): Promise<string> {
+    return await this.postUserAction('/api/user/speakers/listener', { did, isEnabled }, '切换语音监听失败')
+  }
+
+  private async postUserAction(
+    path: string,
+    body: Record<string, unknown>,
+    failMessage: string,
+  ): Promise<string> {
+    const response = await fetch(`${this.serverUrl}${path}`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(body),
+    })
+    if (response.status === 401) await this.handleUnauthorized()
+    const json = await response.json()
+    if (!json.ok) throw new Error(json.error ? String(json.error) : failMessage)
+    return String(json.msg ?? '已生效')
+  }
+
+  // ====== 偏好设置双向同步 ======
+
+  /** Pull the tenant's server-side preferences. */
+  public async getSettings(): Promise<XiaoAiUserSettings> {
+    const response = await fetch(`${this.serverUrl}/api/user/settings`, {
+      method: 'GET',
+      headers: this.getHeaders(),
+    })
+    if (response.status === 401) await this.handleUnauthorized()
+    const json = await response.json()
+    if (!json.ok || !json.data) {
+      throw new Error(json.error ? String(json.error) : '获取云端偏好失败')
+    }
+    const d = json.data
+    return {
+      search_platform: String(d.search_platform ?? 'all'),
+      preferred_quality: String(d.preferred_quality ?? '320k'),
+      default_chime: String(d.default_chime ?? 'dingdong'),
+      enable_tts_chime: Number(d.enable_tts_chime ?? 1),
+      fallback_policy: d.fallback_policy === 'strict' ? 'strict' : 'cross_source',
+    }
+  }
+
+  /** Push a partial preference change; unset keys keep their stored value. */
+  public async updateSettings(patch: Partial<XiaoAiUserSettings>): Promise<string> {
+    return await this.postUserAction('/api/user/settings', patch, '保存云端偏好失败')
   }
 }
 

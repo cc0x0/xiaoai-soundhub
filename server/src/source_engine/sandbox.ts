@@ -18,12 +18,15 @@ import axios, { AxiosRequestConfig } from 'axios';
 import { MusicItem, MusicUrlResult, SearchResult } from '../types/index.js';
 import {
   AGGREGATE_SOURCE,
+  CREDENTIAL_PLATFORMS,
+  CredentialStore,
   PLATFORM_IDS,
   PLATFORM_NAMES,
   PLATFORM_QUALITIES,
   PlatformId,
   findSameTrackOnPlatform,
   getAdapter,
+  hasUsableCredentials,
   isPlatformId,
   mapQuality,
   mergeAggregatedResults,
@@ -44,6 +47,12 @@ export interface ResolveOptions {
    * produce a stream. Off by default so the selected source is respected.
    */
   allowCrossSource?: boolean;
+  /**
+   * The tenant's own per-platform account keys. Adapters that can sign an
+   * official stream URL (QQ音乐 vkey, 网易云 MUSIC_U) use these first, which is
+   * both higher quality and steadier than any relayed link.
+   */
+  credentials?: CredentialStore;
 }
 
 export class SourceEngine {
@@ -406,7 +415,12 @@ export class SourceEngine {
     const platform = isPlatformId(String(songItem.source)) ? (songItem.source as PlatformId) : null;
     if (!platform) {
       console.warn(`[SourceEngine] 歌曲 [${songItem.name}] 缺少有效音源标识，无法解析直链`);
-      return { url: '', quality: requestedQuality };
+      return {
+        url: '',
+        quality: requestedQuality,
+        reason: 'no_source',
+        message: '该歌曲缺少有效的音源标识，无法解析播放地址',
+      };
     }
 
     const quality = mapQuality(requestedQuality, PLATFORM_QUALITIES[platform]);
@@ -414,11 +428,11 @@ export class SourceEngine {
       console.log(`[SourceEngine] [${PLATFORM_NAMES[platform]}] 音质映射: ${requestedQuality} -> ${quality}`);
     }
 
-    const resolved = await this.resolveOnPlatform(songItem, quality, platform);
-    if (resolved) return resolved;
+    const resolved = await this.resolveOnPlatform(songItem, quality, platform, options.credentials);
+    if (resolved) return { ...resolved, resolvedSource: platform };
 
-    // Cross-source fallback: some platforms (QQ/酷狗/咪咕) gate direct links
-    // behind VIP credentials. Rather than failing outright we look for the very
+    // Cross-source fallback: some platforms only sign a stream URL for a
+    // logged-in subscriber. Rather than failing outright we look for the very
     // same recording elsewhere — matched strictly on title + artist + duration,
     // so a cover or a short-video edit can never take its place.
     if (options.allowCrossSource) {
@@ -430,13 +444,14 @@ export class SourceEngine {
         const res = await this.resolveOnPlatform(
           { ...alt, albumName: songItem.albumName, img: songItem.img },
           mapQuality(requestedQuality, PLATFORM_QUALITIES[altPlatform]),
-          altPlatform
+          altPlatform,
+          options.credentials
         );
         if (res) {
           console.log(
             `[SourceEngine] ⚠️ [${PLATFORM_NAMES[platform]}] 无可用直链，已改用聚合搜索时记录的同曲副本 [${PLATFORM_NAMES[altPlatform]}]: ${alt.singer} - ${alt.name}`
           );
-          return res;
+          return { ...res, resolvedSource: altPlatform, crossSource: true };
         }
       }
 
@@ -450,13 +465,14 @@ export class SourceEngine {
         const alt = await this.resolveOnPlatform(
           twin,
           mapQuality(requestedQuality, PLATFORM_QUALITIES[fallback]),
-          fallback
+          fallback,
+          options.credentials
         );
         if (alt) {
           console.log(
             `[SourceEngine] ⚠️ [${PLATFORM_NAMES[platform]}] 无可用直链，已精确匹配同一首歌并回退至 [${PLATFORM_NAMES[fallback]}]: ${twin.singer} - ${twin.name}`
           );
-          return alt;
+          return { ...alt, resolvedSource: fallback, crossSource: true };
         }
       }
     }
@@ -464,16 +480,62 @@ export class SourceEngine {
     console.warn(
       `[SourceEngine] ❌ [${PLATFORM_NAMES[platform]}] 未能解析出直链: ${songItem.singer} - ${songItem.name}`
     );
-    return { url: '', quality };
+
+    // Distinguish "you never told us your account" from "nobody has this track".
+    // The first is fixable by the user, the second is not, and telling them apart
+    // is the whole point of strict mode.
+    const platformName = PLATFORM_NAMES[platform];
+    const credentialFixable = CREDENTIAL_PLATFORMS.has(platform);
+    if (credentialFixable && !hasUsableCredentials(platform, options.credentials)) {
+      return {
+        url: '',
+        quality,
+        reason: 'needs_credentials',
+        message: `${platformName} 需要配置账号凭证后才能获取原平台直链（设置 → 音源账号）`,
+      };
+    }
+
+    return {
+      url: '',
+      quality,
+      reason: options.allowCrossSource ? 'not_available' : 'blocked_by_policy',
+      message: options.allowCrossSource
+        ? `${platformName} 及其他平台均未找到《${songItem.name}》的可播放资源`
+        : `${platformName} 暂无可用直链；已按"严格模式"设置拒绝跨平台兜底`,
+    };
   }
 
   /** Try every resolution channel available for one specific platform. */
   private async resolveOnPlatform(
     songItem: Partial<MusicItem>,
     quality: string,
-    platform: PlatformId
+    platform: PlatformId,
+    credentials?: CredentialStore
   ): Promise<MusicUrlResult | null> {
-    // 1. LX 自定义音源脚本 (仅当脚本声明支持该平台且未被熔断)
+    const adapter = getAdapter(platform);
+    const platformCred = credentials?.[platform];
+    const credentialed = hasUsableCredentials(platform, credentials);
+
+    // 1. 凭证直通：租户配置了自己的账号时，原平台官方接口是最高优先级——
+    //    音质由其订阅决定，链路也比任何中转都稳定。
+    if (credentialed && adapter) {
+      try {
+        const url = await adapter.resolveUrl(songItem, quality, platformCred);
+        if (url) {
+          console.log(
+            `[SourceEngine] 🔑 [${adapter.name}] 凭证直通官方接口取链成功: ${songItem.name}`
+          );
+          return { url, quality };
+        }
+        console.warn(
+          `[SourceEngine] [${adapter.name}] 凭证直通未取到链（凭证可能已过期或该曲目无版权）`
+        );
+      } catch (err: any) {
+        console.warn(`[SourceEngine] [${adapter.name}] 凭证直通取链异常: ${err.message}`);
+      }
+    }
+
+    // 2. LX 自定义音源脚本 (仅当脚本声明支持该平台且未被熔断)
     if (this.scriptSupports(platform, 'musicUrl')) {
       try {
         const res = await this.callScriptMusicUrl(songItem, quality, platform);
@@ -493,11 +555,10 @@ export class SourceEngine {
       }
     }
 
-    // 2. 平台原生官方接口
-    const adapter = getAdapter(platform);
-    if (adapter) {
+    // 3. 平台原生官方接口（无凭证的匿名通道，部分曲目仍可放行）
+    if (adapter && !credentialed) {
       try {
-        const url = await adapter.resolveUrl(songItem, quality);
+        const url = await adapter.resolveUrl(songItem, quality, platformCred);
         if (url) {
           console.log(`[SourceEngine] ✅ [${adapter.name}] 原生接口取链成功: ${songItem.name}`);
           return { url, quality };
@@ -507,7 +568,7 @@ export class SourceEngine {
       }
     }
 
-    // 3. 聚合 API（同平台，不换源）
+    // 4. 聚合 API（同平台，不换源）
     try {
       const url = await resolveViaAggregator(songItem, quality, platform);
       if (url) {

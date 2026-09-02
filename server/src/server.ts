@@ -10,7 +10,7 @@ import { AppDatabase } from './db/index.js';
 import { SecurityCrypto } from './security/crypto.js';
 import { SourceEngine } from './source_engine/sandbox.js';
 import { StreamProxy } from './proxy/stream.js';
-import { PlayScheduler } from './scheduler/queue.js';
+import { PlayScheduler, PlayResult } from './scheduler/queue.js';
 import { MultiTenantSpeakerManager } from './speaker/multi_tenant_manager.js';
 import { XiaoAiClient } from './speaker/client.js';
 import { createAuthRouter, authMiddleware, adminOnlyMiddleware } from './routes/auth.js';
@@ -71,7 +71,7 @@ export async function bootstrap() {
     defaultDid: process.env.XIAOI_DEFAULT_DID || '',
   });
 
-  const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl, db);
+  const scheduler = new PlayScheduler(sourceEngine, fallbackClient, publicBaseUrl, db, securitySalt);
   const speakerManager = new MultiTenantSpeakerManager(db, securitySalt, scheduler, sourceEngine);
 
   // 自动为超级管理员租户初始化并拉取音箱设备
@@ -125,7 +125,13 @@ export async function bootstrap() {
           res.json({ ok: true, data: speakers });
           return;
         }
+        // A token was presented and it did not verify. Falling through to the
+        // admin tenant here would both hide the expiry from the client and hand
+        // one tenant's speaker list to a stale session, so say 401 plainly.
+        res.status(401).json({ ok: false, error: '登录会话已过期，请重新登录' });
+        return;
       }
+      // No credentials at all: keep the single-tenant self-hosted path working.
       const adminSpeakers = db.getSpeakers('admin_root_001');
       res.json({ ok: true, data: adminSpeakers });
     } catch (e: any) {
@@ -261,15 +267,42 @@ export async function bootstrap() {
         quality = db.getUserSettings(userId)?.preferred_quality || '320k';
       }
 
+      const ctx = { client, quality, userId: userId || undefined };
+      const results: PlayResult[] = [];
       for (const targetDid of targetDids) {
         if (playlist && Array.isArray(playlist)) {
-          await scheduler.playMusicList(targetDid, playlist, index || 0, client, quality);
+          results.push(await scheduler.playMusicList(targetDid, playlist, index || 0, ctx));
         } else if (music) {
-          await scheduler.playSingle(targetDid, music, client, quality);
+          results.push(await scheduler.playSingle(targetDid, music, ctx));
         }
       }
 
-      res.json({ ok: true, msg: '🎵 歌曲已成功投播至小爱音箱' });
+      // Surface the resolution outcome instead of always reporting success: a
+      // missing credential or an unavailable track is something the user can act
+      // on, and hiding it behind "已成功投播" while nothing plays is worse.
+      const succeeded = results.filter((r) => r.ok);
+      if (succeeded.length === 0 && results.length > 0) {
+        const first = results[0];
+        res.status(422).json({
+          ok: false,
+          error: first.message || '投播失败：未能获取可播放的音频地址',
+          reason: first.reason,
+        });
+        return;
+      }
+
+      const substituted = succeeded.find((r) => r.crossSource);
+      res.json({
+        ok: true,
+        msg: substituted?.message
+          ? `🎵 已投播至小爱音箱（${substituted.message}）`
+          : '🎵 歌曲已成功投播至小爱音箱',
+        data: {
+          total: results.length,
+          succeeded: succeeded.length,
+          crossSource: !!substituted,
+        },
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message });
     }
@@ -307,17 +340,19 @@ export async function bootstrap() {
         return;
       }
 
+      const ctx = { client, quality, userId: userId || undefined };
+      const playResults: PlayResult[] = [];
       for (const targetDid of targetDids) {
         switch (action) {
           case 'play_list':
             if (Array.isArray(playlist) && playlist.length > 0) {
-              await scheduler.playMusicList(targetDid, playlist, index || 0, client, quality);
+              playResults.push(await scheduler.playMusicList(targetDid, playlist, index || 0, ctx));
             }
             break;
 
           case 'play_music':
             if (music) {
-              await scheduler.playMusicList(targetDid, [music], 0, client, quality);
+              playResults.push(await scheduler.playMusicList(targetDid, [music], 0, ctx));
             }
             break;
 
@@ -355,7 +390,25 @@ export async function bootstrap() {
         }
       }
 
-      res.json({ ok: true, msg: '播放控制指令已成功执行' });
+      // Play actions can fail for a reason worth naming; the rest (pause/volume)
+      // have no resolution step and stay a plain acknowledgement.
+      if (playResults.length > 0 && !playResults.some((r) => r.ok)) {
+        const first = playResults[0];
+        res.status(422).json({
+          ok: false,
+          error: first.message || '播放失败：未能获取可播放的音频地址',
+          reason: first.reason,
+        });
+        return;
+      }
+
+      const substituted = playResults.find((r) => r.ok && r.crossSource);
+      res.json({
+        ok: true,
+        msg: substituted?.message
+          ? `播放指令已执行（${substituted.message}）`
+          : '播放控制指令已成功执行',
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message });
     }

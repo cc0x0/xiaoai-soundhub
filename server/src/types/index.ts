@@ -101,10 +101,25 @@ export interface SearchResult {
   source: string;
 }
 
+/** Why a resolution attempt produced no url, so callers can say something useful. */
+export type ResolveFailureReason =
+  | 'no_source'
+  | 'needs_credentials'
+  | 'not_available'
+  | 'blocked_by_policy';
+
 export interface MusicUrlResult {
   url: string;
   headers?: Record<string, string>;
   quality: string;
+  /** Platform the url actually came from, set when it differs from the request. */
+  resolvedSource?: string;
+  /** True when the url came from another platform's copy of the recording. */
+  crossSource?: boolean;
+  /** Present only when `url` is empty. */
+  reason?: ResolveFailureReason;
+  /** Chinese, user-facing explanation matching `reason`. */
+  message?: string;
 }
 
 export interface ApiResponse<T = unknown> {

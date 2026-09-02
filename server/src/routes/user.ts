@@ -6,7 +6,9 @@ import { AuthRequest } from './auth.js';
 import { SourceEngine } from '../source_engine/sandbox.js';
 import { PlayScheduler } from '../scheduler/queue.js';
 import { XiaomiAuthService } from '../speaker/xiaomi_auth.js';
-import { AGGREGATE_SOURCE, PLATFORM_IDS, isPlatformId } from '../source_engine/platforms.js';
+import { AGGREGATE_SOURCE, PLATFORM_IDS, isPlatformId, PLATFORM_NAMES, CREDENTIAL_FIELDS, CREDENTIAL_PLATFORMS, PlatformId } from '../source_engine/platforms.js';
+
+const CREDENTIAL_PLATFORM_LIST = Array.from(CREDENTIAL_PLATFORMS) as PlatformId[];
 
 /** A valid search source is either the aggregate marker or a known platform id. */
 function isValidSearchSource(value: string): boolean {
@@ -192,14 +194,14 @@ export function createUserRouter(
     res.json({ ok: true, msg: isEnabled ? '已开启语音监听' : '已暂停语音监听' });
   });
 
-  // 8. 获取用户个性化偏好
+  // 10. 获取用户个性化偏好
   router.get('/settings', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const settings = db.getUserSettings(userId);
     res.json({ ok: true, data: settings });
   });
 
-  // 9. 更新用户个性化偏好
+  // 11. 更新用户个性化偏好
   router.post('/settings', (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const {
@@ -210,6 +212,7 @@ export function createUserRouter(
       custom_prefixes,
       enable_tts_chime,
       default_chime,
+      fallback_policy,
     } = req.body;
 
     // Reject unknown source ids so a typo cannot silently disable voice search.
@@ -221,17 +224,102 @@ export function createUserRouter(
       return;
     }
 
+    if (fallback_policy && !['strict', 'cross_source'].includes(String(fallback_policy))) {
+      res.status(400).json({
+        ok: false,
+        error: '降级策略必须是 strict 或 cross_source',
+      });
+      return;
+    }
+
     db.updateUserSettings(userId, {
       active_source,
       search_platform,
       preferred_quality,
       custom_stop_keywords: typeof custom_stop_keywords === 'object' ? JSON.stringify(custom_stop_keywords) : custom_stop_keywords,
       custom_prefixes: typeof custom_prefixes === 'object' ? JSON.stringify(custom_prefixes) : custom_prefixes,
-      enable_tts_chime: enable_tts_chime ? 1 : 0,
+      // Coerce only when the caller actually sent the flag: `x ? 1 : 0` on an
+      // absent field yields 0, which silently switched the chime off on every
+      // partial update (e.g. the app syncing just its quality preference).
+      enable_tts_chime: enable_tts_chime === undefined ? undefined : (enable_tts_chime ? 1 : 0),
       default_chime,
+      fallback_policy,
     });
 
     res.json({ ok: true, msg: '个人设置已保存' });
+  });
+
+  // 9.1 音源账号凭证状态 (仅回报"是否已配置"，绝不回显凭证明文)
+  router.get('/source-credentials', (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const configured = db.listCredentialedPlatforms(userId, securitySalt);
+
+    res.json({
+      ok: true,
+      data: {
+        platforms: CREDENTIAL_PLATFORM_LIST.map((id) => ({
+          id,
+          name: PLATFORM_NAMES[id],
+          fields: CREDENTIAL_FIELDS[id] || [],
+          configured: configured.includes(id),
+        })),
+        fallbackPolicy: db.getUserSettings(userId).fallback_policy || 'cross_source',
+      },
+    });
+  });
+
+  // 9.2 保存 / 更新某平台的账号凭证 (AES-256-GCM 加密落库)
+  router.post('/source-credentials', (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { platform, credential } = req.body;
+
+    if (!platform || !CREDENTIAL_PLATFORM_LIST.includes(platform)) {
+      res.status(400).json({
+        ok: false,
+        error: `暂不支持为该平台配置凭证（当前支持: ${CREDENTIAL_PLATFORM_LIST.join(' / ')}）`,
+      });
+      return;
+    }
+
+    const expected = CREDENTIAL_FIELDS[platform as PlatformId] || [];
+    const cleaned: Record<string, string> = {};
+    for (const field of expected) {
+      const value = credential?.[field.key];
+      if (typeof value === 'string' && value.trim()) {
+        cleaned[field.key] = value.trim();
+      }
+    }
+    // Allow a raw cookie string as an alternative to the individual fields.
+    if (typeof credential?.cookie === 'string' && credential.cookie.trim()) {
+      cleaned.cookie = credential.cookie.trim();
+    }
+
+    const missing = expected.filter((f) => !cleaned[f.key] && !cleaned.cookie);
+    if (missing.length > 0) {
+      res.status(400).json({
+        ok: false,
+        error: `请填写: ${missing.map((f) => f.label).join('、')}（或直接粘贴完整 Cookie）`,
+      });
+      return;
+    }
+
+    db.setSourceCredential(userId, platform, cleaned, securitySalt);
+    res.json({
+      ok: true,
+      msg: `✅ ${PLATFORM_NAMES[platform]} 账号凭证已加密保存，后续将直连该平台官方接口取流`,
+    });
+  });
+
+  // 9.3 清除某平台凭证并物理销毁
+  router.delete('/source-credentials/:platform', (req: AuthRequest, res: Response) => {
+    const userId = req.user!.id;
+    const platform = req.params.platform;
+    if (!CREDENTIAL_PLATFORM_LIST.includes(platform as PlatformId)) {
+      res.status(400).json({ ok: false, error: '未知的音源平台' });
+      return;
+    }
+    db.setSourceCredential(userId, platform, null, securitySalt);
+    res.json({ ok: true, msg: `${PLATFORM_NAMES[platform]} 凭证已清除` });
   });
 
   // 10. 会员订阅卡片信息

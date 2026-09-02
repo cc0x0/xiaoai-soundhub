@@ -81,13 +81,78 @@ export function isPlatformId(value: string): value is PlatformId {
   return (PLATFORM_IDS as string[]).includes(value);
 }
 
+/**
+ * Per-platform account credentials supplied by the tenant.
+ *
+ * Several platforms only sign a full-quality stream URL for a logged-in
+ * subscriber. When the tenant stores their own credentials the adapter can call
+ * the platform's official endpoint directly, which is both higher quality and
+ * more stable than any aggregated relay. Absent credentials the adapter simply
+ * reports that it cannot serve the track, and the caller decides what to do.
+ */
+export interface PlatformCredentials {
+  /** QQ音乐 numeric account id (uin), from the tenant's own cookie. */
+  uin?: string;
+  /** QQ音乐 `qqmusic_key` / `qm_keyst` cookie value. */
+  qqmusicKey?: string;
+  /** 网易云音乐 `MUSIC_U` cookie value. */
+  neteaseKey?: string;
+  /** Raw cookie string, used verbatim when the platform needs the whole header. */
+  cookie?: string;
+}
+
+export type CredentialStore = Partial<Record<PlatformId, PlatformCredentials>>;
+
+/**
+ * Platforms where configuring an account actually unlocks resolution.
+ * Used to tell "you haven't given us your account yet" (actionable) apart from
+ * "this recording isn't available anywhere" (not actionable).
+ */
+export const CREDENTIAL_PLATFORMS = new Set<PlatformId>(['tx', 'wy']);
+
+/** Which credential fields each platform expects, for building the settings UI. */
+export const CREDENTIAL_FIELDS: Partial<Record<PlatformId, { key: string; label: string; hint: string }[]>> = {
+  tx: [
+    { key: 'uin', label: 'QQ 号 (uin)', hint: '登录 y.qq.com 后 Cookie 中的 uin，纯数字' },
+    { key: 'qqmusicKey', label: '登录凭证 (qm_keyst)', hint: 'Cookie 中的 qm_keyst 或 qqmusic_key' },
+  ],
+  wy: [
+    { key: 'neteaseKey', label: '登录凭证 (MUSIC_U)', hint: '登录 music.163.com 后 Cookie 中的 MUSIC_U' },
+  ],
+};
+
+/** True when the store holds enough for the platform's official endpoint. */
+export function hasUsableCredentials(
+  platform: PlatformId,
+  store?: CredentialStore
+): boolean {
+  const cred = store?.[platform];
+  if (!cred) return false;
+  switch (platform) {
+    case 'tx':
+      return !!(cred.uin && cred.qqmusicKey);
+    case 'wy':
+      return !!(cred.neteaseKey || cred.cookie);
+    default:
+      return !!cred.cookie;
+  }
+}
+
 export interface PlatformAdapter {
   id: PlatformId;
   name: string;
   /** Search this platform only. Returns [] when nothing matched. */
   search(keyword: string, page: number, limit: number): Promise<MusicItem[]>;
-  /** Resolve a playable stream URL using the platform's own endpoints. */
-  resolveUrl(item: Partial<MusicItem>, quality: string): Promise<string>;
+  /**
+   * Resolve a playable stream URL using the platform's own endpoints.
+   * `credentials` carries the tenant's own account keys when they configured
+   * them; adapters that can use them should prefer that path.
+   */
+  resolveUrl(
+    item: Partial<MusicItem>,
+    quality: string,
+    credentials?: PlatformCredentials
+  ): Promise<string>;
 }
 
 const UA_DESKTOP =
@@ -146,9 +211,33 @@ const neteaseAdapter: PlatformAdapter = {
     });
   },
 
-  async resolveUrl(item) {
+  async resolveUrl(item, quality, credentials) {
     const songId = String(item.id || item.raw?.id || '');
     if (!/^\d+$/.test(songId)) return '';
+
+    // With the tenant's own MUSIC_U cookie the official player API answers for
+    // tracks the anonymous outer-url endpoint refuses (VIP catalogue), and at
+    // the bitrate their subscription actually covers.
+    const cookie = credentials?.neteaseKey
+      ? `MUSIC_U=${credentials.neteaseKey}; os=pc; appver=8.9.70;`
+      : credentials?.cookie;
+    if (cookie) {
+      try {
+        const br = quality === 'flac' ? 999000 : quality === '128k' ? 128000 : 320000;
+        const resp = await axios.get(
+          `https://music.163.com/api/song/enhance/player/url?ids=[${songId}]&br=${br}`,
+          {
+            timeout: HTTP_TIMEOUT,
+            headers: { 'User-Agent': UA_DESKTOP, Referer: 'https://music.163.com/', Cookie: cookie },
+          }
+        );
+        const url = resp.data?.data?.[0]?.url;
+        if (typeof url === 'string' && url.startsWith('http')) return url;
+      } catch {
+        // fall through to the anonymous endpoint
+      }
+    }
+
     const resp = await axios.head(`https://music.163.com/song/media/outer/url?id=${songId}.mp3`, {
       timeout: 6000,
       maxRedirects: 0,
@@ -180,6 +269,10 @@ const tencentAdapter: PlatformAdapter = {
     return songs.map((item: any) => {
       const duration = Number(item.interval) || 210;
       const songmid = String(item.songmid || item.songid || '');
+      // strMediaMid is what the file name of a QQ音乐 stream is built from, and
+      // it differs from songmid for a good share of the catalogue. Dropping it
+      // at search time is why credentialed resolution used to fail later on.
+      const mediaMid = String(item.strMediaMid || item.media_mid || songmid);
       return toMusicItem({
         id: songmid,
         name: stripTags(item.songname) || keyword,
@@ -194,6 +287,9 @@ const tencentAdapter: PlatformAdapter = {
           songmid,
           id: songmid,
           hash: songmid,
+          strMediaMid: mediaMid,
+          media_mid: mediaMid,
+          songId: String(item.songid || ''),
           name: item.songname,
           singer: (item.singer || []).map((s: any) => s.name).join(' / '),
           albumMid: item.albummid,
@@ -202,9 +298,66 @@ const tencentAdapter: PlatformAdapter = {
     });
   },
 
-  // QQ音乐 direct links require a signed vkey tied to a logged-in cookie, so the
-  // aggregated resolver (GDStudio, same platform) is used instead.
-  async resolveUrl() {
+  /**
+   * QQ音乐 signs its stream URLs with a per-request vkey that the CDN only
+   * issues to a logged-in account, so this path needs the tenant's own uin +
+   * qqmusic_key. Without them there is nothing to sign with and we return empty
+   * so the caller can fall back or report the missing credential.
+   */
+  async resolveUrl(item, quality, credentials) {
+    const uin = String(credentials?.uin || '').replace(/\D/g, '');
+    const key = String(credentials?.qqmusicKey || '');
+    if (!uin || !key) return '';
+
+    const songmid = String(item.raw?.songmid || item.id || '');
+    if (!songmid) return '';
+    const mediaMid = String(item.raw?.strMediaMid || item.raw?.media_mid || songmid);
+
+    // File name prefix + extension select the encoding tier.
+    const tiers =
+      quality === 'flac'
+        ? [{ prefix: 'F000', ext: 'flac' }, { prefix: 'M800', ext: 'mp3' }, { prefix: 'M500', ext: 'mp3' }]
+        : quality === '128k'
+          ? [{ prefix: 'M500', ext: 'mp3' }]
+          : [{ prefix: 'M800', ext: 'mp3' }, { prefix: 'M500', ext: 'mp3' }];
+
+    const guid = String(Math.floor(Math.random() * 1000000000));
+
+    for (const tier of tiers) {
+      const fileName = `${tier.prefix}${songmid}${mediaMid}.${tier.ext}`;
+      try {
+        const resp = await axios.post(
+          'https://u.y.qq.com/cgi-bin/musicu.fcg',
+          {
+            req_0: {
+              module: 'vkey.GetVkeyServer',
+              method: 'CgiGetVkey',
+              param: { filename: [fileName], guid, songmid: [songmid], songtype: [0], uin, loginflag: 1, platform: '20' },
+            },
+            loginUin: uin,
+            comm: { uin, format: 'json', ct: 24, cv: 0, authst: key },
+          },
+          {
+            timeout: HTTP_TIMEOUT,
+            headers: {
+              'User-Agent': UA_DESKTOP,
+              Referer: 'https://y.qq.com/',
+              'Content-Type': 'application/json',
+              Cookie: credentials?.cookie || `uin=${uin}; qqmusic_key=${key}; qm_keyst=${key};`,
+            },
+          }
+        );
+
+        const info = resp.data?.req_0?.data;
+        const purl = info?.midurlinfo?.[0]?.purl;
+        if (typeof purl === 'string' && purl.length > 0) {
+          const host = info?.sip?.find((s: string) => s.startsWith('http')) || 'https://ws.stream.qqmusic.qq.com/';
+          return `${host.replace(/\/$/, '')}/${purl}`;
+        }
+      } catch {
+        // try the next tier
+      }
+    }
     return '';
   },
 };
