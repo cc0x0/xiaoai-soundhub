@@ -1,5 +1,5 @@
 import { XiaoAiClient } from './client.js';
-import { AppDatabase } from '../db/index.js';
+import { AppDatabase, SpeakerRow } from '../db/index.js';
 import { SecurityCrypto } from '../security/crypto.js';
 import { VoiceParser, ParsedVoiceCommand } from '../listener/parser.js';
 import { PlayScheduler } from '../scheduler/queue.js';
@@ -120,23 +120,35 @@ export class MultiTenantSpeakerManager {
       const speakers = this.db.getSpeakers(userId).filter((s) => s.is_ignored === 0 && s.is_listener_enabled === 1);
       if (speakers.length === 0) return;
 
-      // 动态选择网关音箱：优先用户手动设定的 is_gateway = 1
-      const gatewaySpeaker = speakers.find((s) => s.is_gateway === 1) || speakers[0];
+      // 对所有启用监听的音箱进行并行极速轮询 (恢复 8月28日机制)
+      await Promise.allSettled(
+        speakers.map((spk) => this.checkTenantSpeakerAsk(userId, spk, client, speakers))
+      );
+    } catch {}
+  }
 
-      const res = await client.getLatestAsk(gatewaySpeaker.did);
+  private async checkTenantSpeakerAsk(
+    userId: string,
+    speaker: SpeakerRow,
+    client: XiaoAiClient,
+    allSpeakers: SpeakerRow[]
+  ): Promise<void> {
+    try {
+      const res = await client.getLatestAsk(speaker.did);
       const records = Array.isArray(res) ? res : res?.records || res?.data?.records || [];
       if (!records || records.length === 0) return;
 
       const latestRecord = records[0];
       const timestamp = Number(latestRecord.time || latestRecord.timestamp_ms || Date.now());
       const query = String(latestRecord.query || latestRecord.response?.answer?.[0]?.question || '').trim();
-      const reqId = String(latestRecord.requestId || `${timestamp}_${query}`);
+      const reqId = `${speaker.did}_${timestamp}_${query}`;
 
-      const lastTime = this.lastTimestamps.get(userId) || 0;
+      const speakerKey = `${userId}:${speaker.did}`;
+      const lastTime = this.lastTimestamps.get(speakerKey) || 0;
       const userHandled = this.handledKeys.get(userId)!;
 
       if (lastTime === 0) {
-        this.lastTimestamps.set(userId, timestamp);
+        this.lastTimestamps.set(speakerKey, timestamp);
         userHandled.add(reqId);
         return;
       }
@@ -145,7 +157,7 @@ export class MultiTenantSpeakerManager {
         return;
       }
 
-      this.lastTimestamps.set(userId, timestamp);
+      this.lastTimestamps.set(speakerKey, timestamp);
       userHandled.add(reqId);
       if (userHandled.size > 200) {
         const arr = Array.from(userHandled);
@@ -166,59 +178,77 @@ export class MultiTenantSpeakerManager {
       const parser = new VoiceParser(customStop, customPrefixes);
       const cmd = parser.parse(query);
 
-      console.log(`[MultiTenant] 🎯 用户 [${userId}] 音箱 [${gatewaySpeaker.name}] 捕获指令: "${query}" => ${cmd.type}`);
+      console.log(
+        `[MultiTenant] 🎯 用户 [${userId}] 音箱 [${speaker.name || speaker.did}] 捕获指令: "${query}" => ${cmd.type} (全屋: ${!!cmd.isAllSpeakers})`
+      );
 
       if (cmd.type !== 'unknown') {
         // 抢先掐断官方声音
-        await client.pause({ did: gatewaySpeaker.did }).catch(() => {});
-        await this.handleVoiceCommand(userId, gatewaySpeaker.did, cmd, client);
+        await client.pause({ did: speaker.did }).catch(() => {});
+        await this.handleVoiceCommand(userId, speaker.did, cmd, client, allSpeakers);
       }
     } catch {}
   }
 
-  private async handleVoiceCommand(userId: string, did: string, cmd: ParsedVoiceCommand, client: XiaoAiClient): Promise<void> {
+  private async handleVoiceCommand(
+    userId: string,
+    currentDid: string,
+    cmd: ParsedVoiceCommand,
+    client: XiaoAiClient,
+    allSpeakers: SpeakerRow[] = []
+  ): Promise<void> {
+    const targetDids = cmd.isAllSpeakers
+      ? (allSpeakers.length > 0 ? allSpeakers.map((s) => s.did) : [currentDid])
+      : [currentDid];
+
     if (cmd.type === 'play' && cmd.keyword) {
-      // Voice search must honour the tenant's own source choice, falling back to
-      // the global default only when the tenant has not picked one.
       const settings = this.db.getUserSettings(userId);
       const platform =
         settings.search_platform || this.db.getSystemSetting('default_platform', 'all');
       const quality = settings.preferred_quality || '320k';
 
       console.log(
-        `[MultiTenant] 用户 [${userId}] 搜索音乐: ${cmd.keyword} [音源: ${platform} | 音质: ${quality}]`
+        `[MultiTenant] 用户 [${userId}] 搜索音乐: ${cmd.keyword} [音源: ${platform} | 目标音箱: ${targetDids.join(',')}]`
       );
       const searchRes = await this.sourceEngine.search(cmd.keyword, 1, 20, platform);
       if (searchRes.list.length === 0) {
         console.warn(`[MultiTenant] 用户 [${userId}] 在音源 [${platform}] 下未搜索到: ${cmd.keyword}`);
-        await this.speakFailure(client, did, `没有找到${cmd.keyword}`);
+        await this.speakFailure(client, currentDid, `没有找到${cmd.keyword}`);
         return;
       }
 
-      const result = await this.scheduler.playMusicList(did, searchRes.list, 0, {
-        client,
-        quality,
-        userId,
-      });
-      // The speaker was already cut off to pre-empt the official prompt, so a
-      // silent failure leaves the user staring at a dead device. Say what went
-      // wrong out loud — that is the only feedback channel a voice user has.
-      if (!result.ok) {
-        console.warn(`[MultiTenant] 用户 [${userId}] 点歌失败: ${result.message}`);
-        await this.speakFailure(client, did, result.message || '暂时无法播放这首歌');
+      // 并发下发到目标设备（单台或全屋）
+      const playPromises = targetDids.map((did) =>
+        this.scheduler.playMusicList(did, searchRes.list, 0, {
+          client,
+          quality,
+          userId,
+        })
+      );
+
+      const results = await Promise.allSettled(playPromises);
+      const anySuccess = results.some((r) => r.status === 'fulfilled' && r.value.ok);
+
+      if (!anySuccess) {
+        const firstFailure = results.find(
+          (r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && !r.value.ok
+        );
+        const failMsg = firstFailure?.value?.message || '暂时无法播放这首歌';
+        console.warn(`[MultiTenant] 用户 [${userId}] 点歌失败: ${failMsg}`);
+        await this.speakFailure(client, currentDid, failMsg);
       }
     } else if (cmd.type === 'stop') {
-      await this.scheduler.stop(did, client);
+      await Promise.allSettled(targetDids.map((did) => this.scheduler.stop(did, client)));
     } else if (cmd.type === 'pause') {
-      await this.scheduler.pause(did, client);
+      await Promise.allSettled(targetDids.map((did) => this.scheduler.pause(did, client)));
     } else if (cmd.type === 'resume') {
-      await this.scheduler.resume(did, client);
+      await Promise.allSettled(targetDids.map((did) => this.scheduler.resume(did, client)));
     } else if (cmd.type === 'next') {
-      await this.scheduler.next(did, client);
+      await Promise.allSettled(targetDids.map((did) => this.scheduler.next(did, client)));
     } else if (cmd.type === 'prev') {
-      await this.scheduler.prev(did, client);
+      await Promise.allSettled(targetDids.map((did) => this.scheduler.prev(did, client)));
     } else if (cmd.type === 'volume' && cmd.volume !== undefined) {
-      await client.setVolume(cmd.volume, { did });
+      await Promise.allSettled(targetDids.map((did) => client.setVolume(cmd.volume!, { did })));
     }
   }
 

@@ -7,6 +7,7 @@ export interface ParsedVoiceCommand {
   type: 'play' | 'stop' | 'pause' | 'resume' | 'next' | 'prev' | 'volume' | 'unknown';
   keyword?: string;
   volume?: number;
+  isAllSpeakers?: boolean;
   rawText: string;
 }
 
@@ -37,34 +38,42 @@ export class VoiceParser {
   }
 
   public parse(text: string): ParsedVoiceCommand {
-    const raw = (text || '').trim();
+    let raw = (text || '').trim();
     if (!raw) {
       return { type: 'unknown', rawText: raw };
     }
 
+    // 检测是否触发全屋广播/全部播放
+    const isAllSpeakers = /全屋|所有音箱|全部音箱|到处都|每间房|全家/.test(raw);
+    // 清洗掉“全屋”修饰前缀与修饰介词，便于后续指令识别
+    const cleanedRaw = raw
+      .replace(/全屋|所有音箱|全部音箱|到处都|每间房|全家/g, '')
+      .replace(/^[在让向给]/, '')
+      .trim();
+
     // 1. 停止
-    if (this.stopKeywords.some((k) => raw === k || raw.startsWith(k) || raw.endsWith(k))) {
-      return { type: 'stop', rawText: raw };
+    if (this.stopKeywords.some((k) => raw === k || raw.startsWith(k) || raw.endsWith(k) || cleanedRaw === k)) {
+      return { type: 'stop', isAllSpeakers, rawText: raw };
     }
 
     // 2. 暂停
-    if (this.pauseKeywords.some((k) => raw === k || raw.startsWith(k) || raw.endsWith(k))) {
-      return { type: 'pause', rawText: raw };
+    if (this.pauseKeywords.some((k) => raw === k || raw.startsWith(k) || raw.endsWith(k) || cleanedRaw === k)) {
+      return { type: 'pause', isAllSpeakers, rawText: raw };
     }
 
     // 3. 继续
-    if (this.resumeKeywords.some((k) => raw === k)) {
-      return { type: 'resume', rawText: raw };
+    if (this.resumeKeywords.some((k) => raw === k || cleanedRaw === k)) {
+      return { type: 'resume', isAllSpeakers, rawText: raw };
     }
 
     // 4. 下一首
-    if (this.nextKeywords.some((k) => raw.includes(k))) {
-      return { type: 'next', rawText: raw };
+    if (this.nextKeywords.some((k) => raw.includes(k) || cleanedRaw.includes(k))) {
+      return { type: 'next', isAllSpeakers, rawText: raw };
     }
 
     // 5. 上一首
-    if (this.prevKeywords.some((k) => raw.includes(k))) {
-      return { type: 'prev', rawText: raw };
+    if (this.prevKeywords.some((k) => raw.includes(k) || cleanedRaw.includes(k))) {
+      return { type: 'prev', isAllSpeakers, rawText: raw };
     }
 
     // 6. 音量控制
@@ -72,25 +81,27 @@ export class VoiceParser {
     if (volMatch && volMatch[1]) {
       const vol = parseInt(volMatch[1], 10);
       if (vol >= 0 && vol <= 100) {
-        return { type: 'volume', volume: vol, rawText: raw };
+        return { type: 'volume', volume: vol, isAllSpeakers, rawText: raw };
       }
     }
 
     // 7. 播放与搜歌口令匹配
     for (const prefix of this.playPrefixes) {
-      if (raw.startsWith(prefix)) {
-        let keyword = raw.slice(prefix.length).trim();
-        // 清理常见的后缀语气词，如“的歌”、“的歌曲”
+      const matched = raw.startsWith(prefix) ? raw : cleanedRaw.startsWith(prefix) ? cleanedRaw : null;
+      if (matched) {
+        let keyword = matched.slice(prefix.length).trim();
+        // 清理常见的修饰词与语气词
+        keyword = keyword.replace(/^在?(全屋|所有音箱|全部音箱)/, '').trim();
         keyword = keyword.replace(/的(歌|歌曲|音乐)$/, '').trim();
         // 将“周杰伦的晴天”智能清洗为“周杰伦 晴天”，精准定位原唱
         keyword = keyword.replace(/(?<=[^\s])的(?=[^\s])/g, ' ').replace(/\s+/g, ' ').trim();
         if (keyword) {
-          return { type: 'play', keyword, rawText: raw };
+          return { type: 'play', keyword, isAllSpeakers, rawText: raw };
         }
       }
     }
 
-    return { type: 'unknown', rawText: raw };
+    return { type: 'unknown', isAllSpeakers, rawText: raw };
   }
 }
 

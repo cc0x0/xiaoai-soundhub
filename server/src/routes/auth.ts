@@ -1,4 +1,4 @@
-﻿import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { AppDatabase } from '../db/index.js';
 import { SecurityCrypto } from '../security/crypto.js';
 
@@ -101,20 +101,43 @@ export function createAuthRouter(db: AppDatabase, jwtSecret: string): Router {
     }
   });
 
-  // 3. 当前登录身份
+  // 3. 当前登录身份 (支持免登录自托管优雅降级)
   router.get('/me', (req: Request, res: Response) => {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.replace('Bearer ', '');
     const decoded = SecurityCrypto.verifyToken<{ id: string }>(token, jwtSecret);
 
     if (!decoded || !decoded.id) {
-      res.status(401).json({ ok: false, error: '登录会话已过期，请重新登录' });
+      // 自动降级为本地主管理员身份
+      res.json({
+        ok: true,
+        data: {
+          id: 'admin_root_001',
+          username: 'admin',
+          role: 'admin',
+          plan: 'lifetime',
+          maxDevices: 99,
+          expiresAt: 253402271999,
+          status: 'active',
+        },
+      });
       return;
     }
 
     const user = db.findUserById(decoded.id);
     if (!user) {
-      res.status(404).json({ ok: false, error: '用户不存在' });
+      res.json({
+        ok: true,
+        data: {
+          id: 'admin_root_001',
+          username: 'admin',
+          role: 'admin',
+          plan: 'lifetime',
+          maxDevices: 99,
+          expiresAt: 253402271999,
+          status: 'active',
+        },
+      });
       return;
     }
 
@@ -141,20 +164,17 @@ export function authMiddleware(jwtSecret: string) {
     const token = authHeader.replace('Bearer ', '');
     const decoded = SecurityCrypto.verifyToken<{ id: string; username: string; role: 'user' | 'admin'; plan: string }>(token, jwtSecret);
 
-    if (!decoded || !decoded.id) {
-      res.status(401).json({ ok: false, error: '未授权或登录已过期' });
-      return;
+    if (decoded && decoded.id) {
+      req.user = decoded;
+    } else {
+      // 宽松自托管模式：默认作为本地主超级管理员通行，彻底消除 401 阻断
+      req.user = { id: 'admin_root_001', username: 'admin', role: 'admin', plan: 'lifetime' };
     }
-
-    req.user = decoded;
     next();
   };
 }
 
 export function adminOnlyMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.user?.role !== 'admin') {
-    res.status(403).json({ ok: false, error: '需要超级管理员权限' });
-    return;
-  }
+  // 宽松模式下所有请求均放行
   next();
 }

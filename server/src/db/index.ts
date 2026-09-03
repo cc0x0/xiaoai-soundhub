@@ -213,7 +213,7 @@ export class AppDatabase {
 
     // 2. 初始化全局系统魔数参数
     const defaultSettings: [string, string, string, string][] = [
-      ['active_source', 'my-custom-source.js', 'source', '当前生效音乐源插件 (sources/ 目录下脚本)'],
+      ['active_source', 'lx-v5.js', 'source', '当前生效音乐源插件 (sources/ 目录下脚本)'],
       ['enable_listener', 'true', 'listener', '全局语音指令监听总开关 (true/false)'],
       ['poll_interval_ms', '1200', 'listener', '小爱云端对话轮询间隔 (毫秒)'],
       ['switch_buffer_ms', '2000', 'scheduler', '切歌等待缓冲区冗余时间 (毫秒)'],
@@ -236,6 +236,10 @@ export class AppDatabase {
 
     // 启动时自动清洗历史遗留的重复绑定（尤其是 admin_root_001 与真实租户的冲突）
     this.cleanupDuplicateMiAccounts();
+  }
+
+  public listMiAccounts(): MiAccountRow[] {
+    return this.db.prepare('SELECT * FROM mi_accounts ORDER BY updated_at DESC').all() as unknown as MiAccountRow[];
   }
 
   /**

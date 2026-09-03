@@ -14,7 +14,7 @@ export class ConversationListener {
   private parser: VoiceParser;
   private isRunning = false;
   private pollIntervalMs: number;
-  private lastGlobalTimestamp = 0;
+  private lastTimestamps: Map<string, number> = new Map();
   private handledKeys: Set<string> = new Set();
   private commandHandler: VoiceCommandHandler | null = null;
 
@@ -49,7 +49,15 @@ export class ConversationListener {
       }
 
       try {
-        await this.checkGlobalAsk();
+        let devices = this.client.getCachedDevices().filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
+        if (devices.length === 0) {
+          devices = (await this.client.listDevices()).filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
+        }
+
+        // 仅对真正的物理 WiFi 小爱音箱进行并行极速对话轮询 (恢复 8月28日机制)
+        await Promise.allSettled(
+          devices.map((dev) => this.checkSpeakerAsk(dev, devices))
+        );
       } catch {
         // 忽略单次网络闪断
       }
@@ -58,36 +66,9 @@ export class ConversationListener {
     }
   }
 
-  private async checkGlobalAsk(): Promise<void> {
+  private async checkSpeakerAsk(dev: DeviceInfo, allDevices: DeviceInfo[]): Promise<void> {
     try {
-      let devices = this.client.getCachedDevices().filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
-      if (devices.length === 0) {
-        devices = (await this.client.listDevices()).filter((d) => d.source === 'MiNA' && !d.did.startsWith('blt.'));
-      }
-      if (devices.length === 0) return;
-
-      // 优先将 唯美小爱音箱Pro (725146300) 或配置的主音箱作为第一网关
-      const sortedDevs = [...devices].sort((a, b) => {
-        if (a.did === '725146300' || a.name?.includes('唯美')) return -1;
-        if (b.did === '725146300' || b.name?.includes('唯美')) return 1;
-        return 0;
-      });
-
-      let askResult: any = null;
-      let activeDev: DeviceInfo = sortedDevs[0];
-
-      for (const dev of sortedDevs) {
-        try {
-          const res = await this.client.getLatestAsk(dev.did);
-          const recs = Array.isArray(res) ? res : res?.records || res?.data?.records || [];
-          if (recs && recs.length > 0) {
-            askResult = res;
-            activeDev = dev;
-            break;
-          }
-        } catch {}
-      }
-
+      const askResult = await this.client.getLatestAsk(dev.did);
       if (!askResult) return;
 
       const records = Array.isArray(askResult)
@@ -98,48 +79,39 @@ export class ConversationListener {
       const latestRecord = records[0];
       const timestamp = Number(latestRecord.time || latestRecord.timestamp_ms || Date.now());
       const query = String(latestRecord.query || latestRecord.response?.answer?.[0]?.question || '').trim();
-      const reqId = String(latestRecord.requestId || `${timestamp}_${query}`);
+      const reqId = `${dev.did}_${timestamp}_${query}`;
+
+      const lastTime = this.lastTimestamps.get(dev.did) || 0;
 
       // 首次初始化时间戳，避免启动时误触发历史记录
-      if (this.lastGlobalTimestamp === 0) {
-        this.lastGlobalTimestamp = timestamp;
+      if (lastTime === 0) {
+        this.lastTimestamps.set(dev.did, timestamp);
         this.handledKeys.add(reqId);
         return;
       }
 
-      // 全局时间戳与唯一 Key 排重：已处理过的请求绝不重复触发
-      if (timestamp <= this.lastGlobalTimestamp || this.handledKeys.has(reqId) || !query) {
+      // 时间戳与排重校验
+      if (timestamp <= lastTime || this.handledKeys.has(reqId) || !query) {
         return;
       }
 
-      this.lastGlobalTimestamp = timestamp;
+      this.lastTimestamps.set(dev.did, timestamp);
       this.handledKeys.add(reqId);
       if (this.handledKeys.size > 200) {
         const keysArr = Array.from(this.handledKeys);
         this.handledKeys = new Set(keysArr.slice(keysArr.length - 100));
       }
 
-      // 智能匹配目标音箱，默认指向实际捕获到对话的 Pro 音箱
-      let targetSpeaker = devices.find(
-        (d) =>
-          (d.deviceId && d.deviceId === latestRecord.deviceId) ||
-          (d.did && d.did === latestRecord.miotDID) ||
-          (d.did && d.did === latestRecord.deviceId)
-      );
-
-      if (!targetSpeaker) {
-        targetSpeaker = activeDev;
-      }
-
-      console.log(`[ConversationListener] 🎯 捕获到音箱 [${targetSpeaker.name || targetSpeaker.did}] (${targetSpeaker.did}) 语音指令: "${query}"`);
+      console.log(`[ConversationListener] 🎯 捕获到音箱 [${dev.name || dev.did}] (${dev.did}) 语音指令: "${query}"`);
 
       const parsed = this.parser.parse(query);
       if (parsed.type !== 'unknown') {
-        // 抢先掐断小爱官方自带播放或 VIP 提示音
-        await this.client.pause({ did: targetSpeaker.did }).catch(() => {});
+        // 抢先掐断当前小爱官方自带播放或 VIP 提示音
+        await this.client.pause({ did: dev.did }).catch(() => {});
 
         if (this.commandHandler) {
-          await this.commandHandler(targetSpeaker.did, parsed);
+          // 若指令明确要求全屋播放，通知所有音箱；否则只定向在当前听到的音箱 (dev.did) 上播放
+          await this.commandHandler(dev.did, parsed);
         }
       }
     } catch {}

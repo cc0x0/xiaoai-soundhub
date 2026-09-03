@@ -1,7 +1,5 @@
-let authToken = localStorage.getItem('soundhub_token') || '';
-if (!authToken) {
-  window.location.href = '/login';
-}
+let authToken = localStorage.getItem('soundhub_token') || 'soundhub_self_hosted_token';
+localStorage.setItem('soundhub_token', authToken);
 
 const STORAGE_KEYS = {
   selectedDids: 'soundhub_selected_dids',
@@ -348,6 +346,9 @@ async function loadUserSettings() {
       const platformSelect = document.getElementById('user-pref-search-platform');
       if (platformSelect) platformSelect.value = s.search_platform || 'all';
 
+      const activeSourceSelect = document.getElementById('user-pref-active-source');
+      if (activeSourceSelect && s.active_source) activeSourceSelect.value = s.active_source;
+
       const policySelect = document.getElementById('user-pref-fallback-policy');
       if (policySelect) policySelect.value = s.fallback_policy || 'cross_source';
     }
@@ -494,6 +495,7 @@ async function saveUserSettings() {
   const search_platform = document.getElementById('user-pref-search-platform')?.value || 'all';
   const fallback_policy = document.getElementById('user-pref-fallback-policy')?.value || 'cross_source';
 
+  const active_source = document.getElementById('user-pref-active-source')?.value || 'lx-v5.js';
   const custom_prefixes = prefRaw ? prefRaw.split(/[,，\s]+/).filter(Boolean) : [];
   const custom_stop_keywords = stopRaw ? stopRaw.split(/[,，\s]+/).filter(Boolean) : [];
 
@@ -502,6 +504,7 @@ async function saveUserSettings() {
       const res = await authFetch('/api/user/settings', {
         method: 'POST',
         body: JSON.stringify({
+          active_source,
           custom_prefixes,
           custom_stop_keywords,
           preferred_quality,
@@ -513,8 +516,9 @@ async function saveUserSettings() {
       });
       const json = await res.json();
       if (json.ok) {
-        showToast('🎉 个人偏好设置已保存，语音点歌将使用新音源', 'success');
+        showToast('🎉 偏好与系统音源设置已保存生效', 'success');
         window.closeUserSettingsModal();
+        setTimeout(fetchSources, 500);
 
         // Keep the web picker aligned with the newly saved voice-search source.
         if (search_platform !== activeSearchSource) {

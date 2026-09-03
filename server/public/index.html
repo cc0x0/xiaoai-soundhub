@@ -17,19 +17,12 @@
         <span class="logo-icon">📻</span>
         <div>
           <h1>XiaoAi SoundHub</h1>
-          <p class="subtitle">小爱全屋音乐与智能播报声枢 · 多租户工作台</p>
+          <p class="subtitle">小爱全屋音乐播放与智能语音控制中心</p>
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 12px;">
-        <div id="user-profile-bar" style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
-          <span id="user-display-name" style="font-weight: 600;">游客</span>
-          <span id="user-plan-badge" class="plan-badge plan-free">FREE</span>
-        </div>
-        <button class="btn btn-secondary btn-sm" id="btn-open-bind-modal">🔑 绑定米家</button>
-        <button class="btn btn-secondary btn-sm" id="btn-open-settings-modal">⚙️ 偏好设置</button>
-        <button class="btn btn-secondary btn-sm" id="btn-open-redeem-modal">🎁 兑换VIP</button>
-        <button class="btn btn-secondary btn-sm" id="btn-go-admin" style="display: none;" onclick="window.location.href='/admin'">🛠️ 管理后台</button>
-        <button class="btn btn-secondary btn-sm" id="btn-logout" onclick="handleUserLogout()">🚪 退出</button>
+        <button class="btn btn-secondary btn-sm" id="btn-open-bind-modal">🔑 绑定米家音箱</button>
+        <button class="btn btn-secondary btn-sm" id="btn-open-settings-modal">⚙️ 偏好与系统设置</button>
       </div>
     </header>
 
@@ -269,6 +262,18 @@
       <div style="margin-bottom: 12px;">
         <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">自定义停止 / 闭嘴口令 (多个以逗号隔开)</label>
         <input type="text" id="user-pref-stop-words" placeholder="例如: 别唱了, 闭嘴, 退下, 停止播放, 关掉音乐" style="width: 100%; box-sizing: border-box; padding: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label">当前运行音源脚本 (sources/*.js)</label>
+        <select id="user-pref-active-source" class="settings-input">
+          <option value="lx-v5.js">⚡ lx-v5.js (全平台六合一，推荐)</option>
+          <option value="xh.js">🌟 xh.js (星海音乐源)</option>
+          <option value="yehua.js">🌷 yehua.js (野花源)</option>
+        </select>
+        <div class="settings-hint">
+          服务端 Node 沙箱执行的核心解析插件。切换保存后即刻热重载。
+        </div>
       </div>
 
       <div class="settings-field">

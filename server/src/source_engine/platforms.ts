@@ -409,7 +409,14 @@ const kuwoAdapter: PlatformAdapter = {
           { timeout: 6000, headers: { 'User-Agent': UA_DESKTOP } }
         );
         const url = String(resp.data || '').trim();
-        if (url.startsWith('http')) return url;
+        if (!url.startsWith('http')) continue;
+        if (await isPlaceholderStream(url)) {
+          console.warn(
+            `[SourceEngine] [酷我音乐] rid ${rid} 返回的是版权拦截提示音，已判为无效直链`
+          );
+          continue;
+        }
+        return url;
       } catch {
         // try the next format
       }
@@ -417,6 +424,40 @@ const kuwoAdapter: PlatformAdapter = {
     return '';
   },
 };
+
+/**
+ * Detect a rights-block notice standing in for the real recording.
+ *
+ * Kuwo's anti-leech endpoint no longer refuses an anonymous request outright:
+ * it answers 200 with a short spoken notice ("请在酷我音乐APP中收听") for every
+ * rid it will not serve, so three different songs come back as the same file.
+ * Treating that as a successful resolution is what puts the notice on the
+ * speaker, so anything far too small to be a song is rejected here.
+ *
+ * The check is a HEAD-equivalent single-byte range request, so it costs one
+ * round trip and never downloads audio.
+ */
+const MIN_PLAUSIBLE_TRACK_BYTES = 512 * 1024;
+
+async function isPlaceholderStream(url: string): Promise<boolean> {
+  try {
+    const resp = await axios.get(url, {
+      timeout: 6000,
+      headers: { 'User-Agent': UA_DESKTOP, Range: 'bytes=0-0' },
+      responseType: 'arraybuffer',
+      validateStatus: (s) => s === 200 || s === 206,
+    });
+
+    // `Content-Range: bytes 0-0/181521` carries the full length.
+    const range = String(resp.headers?.['content-range'] || '');
+    const total = Number(range.split('/')[1] || resp.headers?.['content-length'] || 0);
+    if (!total) return false; // length unknown — let the caller try it
+    return total < MIN_PLAUSIBLE_TRACK_BYTES;
+  } catch {
+    // A failed probe says nothing about the content; don't reject on it.
+    return false;
+  }
+}
 
 // ============================ 酷狗音乐 (kg) ============================
 const kugouAdapter: PlatformAdapter = {

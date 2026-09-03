@@ -431,13 +431,11 @@ export class SourceEngine {
     const resolved = await this.resolveOnPlatform(songItem, quality, platform, options.credentials);
     if (resolved) return { ...resolved, resolvedSource: platform };
 
-    // Cross-source fallback: some platforms only sign a stream URL for a
-    // logged-in subscriber. Rather than failing outright we look for the very
-    // same recording elsewhere — matched strictly on title + artist + duration,
-    // so a cover or a short-video edit can never take its place.
-    if (options.allowCrossSource) {
-      // An aggregated search already located this recording on other platforms
-      // and attached them; those cost nothing to try, so they go first.
+    // 宽松跨源兜底（恢复 8月28日机制）：默认允许跨源兜底，除非显式指定 false
+    const allowCrossSource = options.allowCrossSource !== false;
+
+    if (allowCrossSource) {
+      // 1. 优先尝试聚合搜索时携带的同曲跨源副本
       for (const alt of songItem.alternates || []) {
         if (!isPlatformId(alt.source) || alt.source === platform) continue;
         const altPlatform = alt.source as PlatformId;
@@ -447,14 +445,15 @@ export class SourceEngine {
           altPlatform,
           options.credentials
         );
-        if (res) {
+        if (res && res.url) {
           console.log(
-            `[SourceEngine] ⚠️ [${PLATFORM_NAMES[platform]}] 无可用直链，已改用聚合搜索时记录的同曲副本 [${PLATFORM_NAMES[altPlatform]}]: ${alt.singer} - ${alt.name}`
+            `[SourceEngine] ⚠️ [${PLATFORM_NAMES[platform]}] 无可用直链，已改用聚合副本 [${PLATFORM_NAMES[altPlatform]}]: ${alt.singer} - ${alt.name}`
           );
           return { ...res, resolvedSource: altPlatform, crossSource: true };
         }
       }
 
+      // 2. 在其它原生平台精准匹配同名同歌手录音
       const triedSources = new Set([platform, ...(songItem.alternates || []).map((a) => a.source)]);
       for (const fallback of PLATFORM_IDS) {
         if (triedSources.has(fallback)) continue;
@@ -468,40 +467,71 @@ export class SourceEngine {
           fallback,
           options.credentials
         );
-        if (alt) {
+        if (alt && alt.url) {
           console.log(
             `[SourceEngine] ⚠️ [${PLATFORM_NAMES[platform]}] 无可用直链，已精确匹配同一首歌并回退至 [${PLATFORM_NAMES[fallback]}]: ${twin.singer} - ${twin.name}`
           );
           return { ...alt, resolvedSource: fallback, crossSource: true };
         }
       }
+
+      // 3. 终极回退（8月28日版本特性）：全网歌名+歌手模糊匹配直链提取 (GDStudio 跨源通道)
+      const searchKwd = `${songItem.singer || ''} ${songItem.name || ''}`.trim() || String(songItem.name || '');
+      for (const p of ['netease', 'kugou', 'tencent', 'kuwo']) {
+        try {
+          const sResp = await axios.get(
+            `https://music-api.gdstudio.xyz/api.php?types=search&count=5&source=${p}&pages=1&name=${encodeURIComponent(searchKwd)}`,
+            { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }
+          );
+          const candidates = Array.isArray(sResp.data) ? sResp.data : [];
+          if (candidates.length > 0 && candidates[0]?.id) {
+            const uResp = await axios.get(
+              `https://music-api.gdstudio.xyz/api.php?types=url&source=${p}&id=${encodeURIComponent(String(candidates[0].id))}&br=320`,
+              { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }
+            );
+            const rawUrl = uResp.data?.url;
+            if (typeof rawUrl === 'string' && rawUrl.startsWith('http')) {
+              console.log(`[SourceEngine] ✅ 全网模糊跨源 [${p}] 成功解析: ${searchKwd}`);
+              return { url: rawUrl, quality: '320k', resolvedSource: p, crossSource: true };
+            }
+          }
+        } catch {}
+      }
+
+      // 4. 网易云免费外链终极兜底
+      try {
+        const wySearch = await axios.get(
+          `https://music.163.com/api/search/get/web?csrf_token=&hlpretag=&hlposttag=&s=${encodeURIComponent(searchKwd)}&type=1&offset=0&total=true&limit=5`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 5000 }
+        );
+        const songs = wySearch.data?.result?.songs || [];
+        for (const s of songs) {
+          const wyUrl = `https://music.163.com/song/media/outer/url?id=${s.id}.mp3`;
+          try {
+            const head = await axios.head(wyUrl, {
+              maxRedirects: 0,
+              validateStatus: (st) => st >= 200 && st < 400,
+              timeout: 4000,
+            });
+            if (head.status === 302 && head.headers.location && !head.headers.location.includes('404')) {
+              console.log(`[SourceEngine] ✅ 网易云外链终极兜底解析成功: ${searchKwd}`);
+              return { url: head.headers.location, quality: '128k', resolvedSource: 'wy', crossSource: true };
+            }
+          } catch {}
+        }
+      } catch {}
     }
 
     console.warn(
       `[SourceEngine] ❌ [${PLATFORM_NAMES[platform]}] 未能解析出直链: ${songItem.singer} - ${songItem.name}`
     );
 
-    // Distinguish "you never told us your account" from "nobody has this track".
-    // The first is fixable by the user, the second is not, and telling them apart
-    // is the whole point of strict mode.
     const platformName = PLATFORM_NAMES[platform];
-    const credentialFixable = CREDENTIAL_PLATFORMS.has(platform);
-    if (credentialFixable && !hasUsableCredentials(platform, options.credentials)) {
-      return {
-        url: '',
-        quality,
-        reason: 'needs_credentials',
-        message: `${platformName} 需要配置账号凭证后才能获取原平台直链（设置 → 音源账号）`,
-      };
-    }
-
     return {
       url: '',
       quality,
-      reason: options.allowCrossSource ? 'not_available' : 'blocked_by_policy',
-      message: options.allowCrossSource
-        ? `${platformName} 及其他平台均未找到《${songItem.name}》的可播放资源`
-        : `${platformName} 暂无可用直链；已按"严格模式"设置拒绝跨平台兜底`,
+      reason: 'not_available',
+      message: `${platformName} 及全网暂未找到《${songItem.name}》的可播放资源`,
     };
   }
 

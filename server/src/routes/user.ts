@@ -232,6 +232,13 @@ export function createUserRouter(
       return;
     }
 
+    if (active_source && typeof active_source === 'string') {
+      db.updateSystemSetting('active_source', active_source);
+      sourceEngine.loadSource(active_source).catch((err) => {
+        console.warn(`[Settings] 热重载音源 ${active_source} 失败:`, err.message);
+      });
+    }
+
     db.updateUserSettings(userId, {
       active_source,
       search_platform,
@@ -246,7 +253,7 @@ export function createUserRouter(
       fallback_policy,
     });
 
-    res.json({ ok: true, msg: '个人设置已保存' });
+    res.json({ ok: true, msg: '个人与系统设置已保存并生效' });
   });
 
   // 9.1 音源账号凭证状态 (仅回报"是否已配置"，绝不回显凭证明文)
