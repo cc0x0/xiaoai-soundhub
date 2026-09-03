@@ -94,13 +94,14 @@ export class AuthExpiredError extends Error {
 }
 
 /** Must match the placeholder shown in the XiaoAi settings panel. */
-export const DEFAULT_SERVER_URL = 'http://127.0.0.1:8989'
+export const DEFAULT_SERVER_URL = 'http://117.72.79.238:8989'
 
 class XiaoAiService {
   private serverUrl: string = DEFAULT_SERVER_URL
   private token: string = ''
   private cachedDevices: XiaoAiDevice[] = []
   private selectedDids: string[] = []
+  private username: string = ''
 
   constructor() {
     void this.init()
@@ -112,9 +113,11 @@ class XiaoAiService {
       // holds so the value survives and later reads find it in the new place.
       const url = await getData<string>(SOUNDHUB_SERVER_URL_KEY) ??
         await getData<string>(LEGACY_KEYS.serverUrl)
-      if (url) {
+      if (url && !url.includes('127.0.0.1')) {
         this.serverUrl = url
-        await saveData(SOUNDHUB_SERVER_URL_KEY, url)
+      } else {
+        this.serverUrl = DEFAULT_SERVER_URL
+        await saveData(SOUNDHUB_SERVER_URL_KEY, this.serverUrl)
       }
 
       const token = await getData<string>(SOUNDHUB_TOKEN_KEY) ??
@@ -123,6 +126,8 @@ class XiaoAiService {
       if (!token) {
         await saveData(SOUNDHUB_TOKEN_KEY, this.token)
       }
+
+      this.username = await getData<string>('@soundhub_username') ?? ''
 
       const dids = await getData<string[]>(SOUNDHUB_SELECTED_DIDS_KEY) ??
         await getData<string[]>(LEGACY_KEYS.selectedDids)
@@ -133,6 +138,15 @@ class XiaoAiService {
     } catch {
       // ignore
     }
+  }
+
+  public getUsername(): string {
+    return this.username
+  }
+
+  public async setUsername(u: string): Promise<void> {
+    this.username = u
+    await saveData('@soundhub_username', u)
   }
 
   public getServerUrl(): string {
@@ -196,8 +210,10 @@ class XiaoAiService {
       throw new Error(json.error ? String(json.error) : (register ? '注册失败' : '登录失败'))
     }
 
+    const uname = String(json.data.username ?? json.data.user?.username ?? username)
     await this.setToken(String(json.data.token))
-    return String(json.data.username ?? json.data.user?.username ?? username)
+    await this.setUsername(uname)
+    return uname
   }
 
   /** Verify the stored token against the server; false means re-login needed. */
@@ -217,6 +233,7 @@ class XiaoAiService {
 
   public async logout(): Promise<void> {
     await this.setToken('')
+    await this.setUsername('')
     this.cachedDevices = []
   }
 

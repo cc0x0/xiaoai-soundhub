@@ -47,7 +47,10 @@ const POLICY_OPTIONS = [
 export default memo(() => {
   const theme = useTheme()
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL)
-  const [token, setToken] = useState('')
+  const [username, setUsername] = useState('admin')
+  const [password, setPassword] = useState('admin123456')
+  const [loggedInUser, setLoggedInUser] = useState('')
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [devices, setDevices] = useState<XiaoAiDevice[]>([])
   const [testing, setTesting] = useState(false)
   const [ttsModalVisible, setTtsModalVisible] = useState(false)
@@ -69,8 +72,9 @@ export default memo(() => {
 
   useEffect(() => {
     setServerUrl(xiaoaiService.getServerUrl() || DEFAULT_SERVER_URL)
-    setToken(xiaoaiService.getToken() || '')
+    setLoggedInUser(xiaoaiService.getUsername())
     void loadCloudSettings()
+    void xiaoaiService.getDevices().then(setDevices).catch(() => {})
   }, [loadCloudSettings])
 
   const handleSaveUrl = (url: string) => {
@@ -78,9 +82,37 @@ export default memo(() => {
     void xiaoaiService.setServerUrl(url)
   }
 
-  const handleSaveToken = (t: string) => {
-    setToken(t)
-    void xiaoaiService.setToken(t)
+  const handleLogin = async() => {
+    if (!serverUrl) {
+      toast('请输入云端服务地址')
+      return
+    }
+    if (!username || !password) {
+      toast('请输入用户名和密码')
+      return
+    }
+    setIsLoggingIn(true)
+    try {
+      await xiaoaiService.setServerUrl(serverUrl)
+      const uname = await xiaoaiService.login(username, password)
+      setLoggedInUser(uname)
+      const list = await xiaoaiService.getDevices(true)
+      setDevices(list)
+      await loadCloudSettings()
+      toast(`🎉 登录成功！已从服务器获取 Token 并同步 ${list.length} 台音箱`)
+    } catch (err: unknown) {
+      toast(`登录失败: ${(err as Error).message}`)
+    } finally {
+      setIsLoggingIn(false)
+    }
+  }
+
+  const handleLogout = async() => {
+    await xiaoaiService.logout()
+    setLoggedInUser('')
+    setDevices([])
+    setSettings(null)
+    toast('已退出当前账号，请重新登录')
   }
 
   const handleTestConnect = async() => {
@@ -91,13 +123,12 @@ export default memo(() => {
     setTesting(true)
     try {
       await xiaoaiService.setServerUrl(serverUrl)
-      await xiaoaiService.setToken(token)
       const list = await xiaoaiService.getDevices(true)
       setDevices(list)
-      toast(`连接成功！发现 ${list.length} 台小爱音箱 🎉`)
+      toast(`刷新成功！发现 ${list.length} 台小爱音箱 🎉`)
       await loadCloudSettings()
     } catch (err: unknown) {
-      toast(`连接失败: ${(err as Error).message}`)
+      toast(`刷新失败: ${(err as Error).message}`)
     } finally {
       setTesting(false)
     }
@@ -123,9 +154,8 @@ export default memo(() => {
     } catch (err: unknown) {
       setSettings(previous)
       if (err instanceof AuthExpiredError) {
-        setToken('')
+        setLoggedInUser('')
         setSettings(null)
-        setAuthModalVisible(true)
       } else {
         toast(`同步失败: ${(err as Error).message}`)
       }
@@ -188,35 +218,98 @@ export default memo(() => {
           onChangeText={handleSaveUrl}
         />
 
-        <Text style={[styles.label, { marginTop: 12 }]} size={14}>服务访问 Token (未开启鉴权可留空)</Text>
-        <TextInput
-          style={[
-            styles.input,
-            {
-              backgroundColor: theme['c-200'],
-              color: theme['c-font'],
-              borderColor: theme['c-300'] ?? theme['c-200'],
-            },
-          ]}
-          value={token}
-          placeholder="可选填鉴权 Token"
-          placeholderTextColor={theme['c-font-label']}
-          onChangeText={handleSaveToken}
-        />
-
-        <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={[styles.btn, { backgroundColor: theme['c-primary'] }]}
-            onPress={handleTestConnect}
-            disabled={testing}
+        {loggedInUser ? (
+          <View
+            style={[
+              styles.loginCard,
+              {
+                backgroundColor: theme['c-200'],
+                borderColor: theme['c-primary'],
+              },
+            ]}
           >
-            {testing ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.btnText}>🔄 测试连接并拉取音箱</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+            <View style={styles.loginCardInfo}>
+              <Text size={14} style={{ fontWeight: '700' }}>
+                👤 登录身份: {loggedInUser}
+              </Text>
+              <Text size={12} color={theme['c-font-label']}>
+                {devices.length > 0
+                  ? `📻 已连接 ${devices.length} 台小爱音箱`
+                  : '已登录，点击右侧同步音箱'}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <TouchableOpacity
+                style={[styles.smallBtn, { backgroundColor: theme['c-primary'] }]}
+                onPress={handleTestConnect}
+                disabled={testing}
+              >
+                <Text style={styles.smallBtnText}>
+                  {testing ? '刷新中' : '🔄 刷新'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.smallBtn, { backgroundColor: theme['c-300'] ?? '#475569' }]}
+                onPress={handleLogout}
+              >
+                <Text style={styles.smallBtnText}>🚪 退出</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={{ marginTop: 10 }}>
+            <Text style={styles.label} size={13}>
+              SoundHub 登录账号
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme['c-200'],
+                  color: theme['c-font'],
+                  borderColor: theme['c-300'] ?? theme['c-200'],
+                },
+              ]}
+              value={username}
+              placeholder="默认 admin"
+              placeholderTextColor={theme['c-font-label']}
+              onChangeText={setUsername}
+            />
+
+            <Text style={[styles.label, { marginTop: 10 }]} size={13}>
+              登录密码
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme['c-200'],
+                  color: theme['c-font'],
+                  borderColor: theme['c-300'] ?? theme['c-200'],
+                },
+              ]}
+              value={password}
+              placeholder="默认 admin123456"
+              secureTextEntry
+              placeholderTextColor={theme['c-font-label']}
+              onChangeText={setPassword}
+            />
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: theme['c-primary'] }]}
+                onPress={handleLogin}
+                disabled={isLoggingIn}
+              >
+                {isLoggingIn ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.btnText}>🔑 登录并自动获取 Token 与音箱</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         <View style={styles.quickActions}>
           <TouchableOpacity
@@ -314,7 +407,7 @@ export default memo(() => {
         visible={authModalVisible}
         onClose={() => { setAuthModalVisible(false) }}
         onAuthorized={() => {
-          setToken(xiaoaiService.getToken())
+          setLoggedInUser(xiaoaiService.getUsername())
           void loadCloudSettings()
         }}
       />
@@ -413,6 +506,31 @@ const styles = createStyle({
   },
   deviceItem: {
     paddingVertical: 3,
+  },
+  loginCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  loginCardInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  smallBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  smallBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 })
 
