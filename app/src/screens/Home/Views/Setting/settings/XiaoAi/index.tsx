@@ -59,10 +59,6 @@ export default memo(() => {
 
   /** Pull the tenant's cloud preferences so both ends show the same values. */
   const loadCloudSettings = useCallback(async() => {
-    if (!xiaoaiService.hasToken()) {
-      setSettings(null)
-      return
-    }
     try {
       setSettings(await xiaoaiService.getSettings())
     } catch {

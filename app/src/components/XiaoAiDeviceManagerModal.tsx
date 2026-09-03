@@ -45,12 +45,6 @@ export const XiaoAiDeviceManagerModal: React.FC<Props> = ({ visible, onClose }) 
   const [needsAuth, setNeedsAuth] = useState<boolean>(false)
 
   const load = useCallback(async() => {
-    if (!xiaoaiService.hasToken()) {
-      setNeedsAuth(true)
-      setSpeakers([])
-      return
-    }
-
     setNeedsAuth(false)
     setLoading(true)
     try {

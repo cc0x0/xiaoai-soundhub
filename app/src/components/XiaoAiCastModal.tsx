@@ -52,14 +52,6 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
   const mapped = targetMusic ? toCastParams(targetMusic) : null
 
   const loadDevices = useCallback(async() => {
-    // Lazy auth: the device list is the first thing that needs the cloud, so an
-    // unbound user is told what to do here instead of hitting a 401 later.
-    if (!xiaoaiService.hasToken()) {
-      setNeedsAuth(true)
-      setDevices([])
-      return
-    }
-
     setNeedsAuth(false)
     setLoading(true)
     try {
@@ -109,10 +101,6 @@ export const XiaoAiCastModal: React.FC<Props> = ({ visible, onClose, musicInfo }
   }
 
   const handleCast = async() => {
-    if (!xiaoaiService.hasToken()) {
-      setAuthVisible(true)
-      return
-    }
     if (!targetMusic) {
       toast('当前没有可投播的歌曲，请先播放或选中一首')
       return

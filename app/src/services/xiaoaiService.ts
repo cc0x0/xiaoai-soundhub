@@ -119,9 +119,9 @@ class XiaoAiService {
 
       const token = await getData<string>(SOUNDHUB_TOKEN_KEY) ??
         await getData<string>(LEGACY_KEYS.token)
-      if (token) {
-        this.token = token
-        await saveData(SOUNDHUB_TOKEN_KEY, token)
+      this.token = token || 'self_hosted_token'
+      if (!token) {
+        await saveData(SOUNDHUB_TOKEN_KEY, this.token)
       }
 
       const dids = await getData<string[]>(SOUNDHUB_SELECTED_DIDS_KEY) ??
@@ -162,9 +162,9 @@ class XiaoAiService {
     await saveData(SOUNDHUB_SELECTED_DIDS_KEY, dids)
   }
 
-  /** True when a token is on hand. Does not prove the token is still valid. */
+  /** True when a token is on hand or in self-hosted mode. */
   public hasToken(): boolean {
-    return this.token.length > 0
+    return !!(this.serverUrl)
   }
 
   private getHeaders(): Record<string, string> {

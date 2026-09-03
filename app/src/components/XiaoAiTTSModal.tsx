@@ -55,12 +55,6 @@ export const XiaoAiTTSModal: React.FC<Props> = ({ visible, onClose }) => {
   const [needsAuth, setNeedsAuth] = useState<boolean>(false)
 
   const loadDevices = useCallback(async() => {
-    if (!xiaoaiService.hasToken()) {
-      setNeedsAuth(true)
-      setDevices([])
-      return
-    }
-
     setNeedsAuth(false)
     setLoading(true)
     try {
