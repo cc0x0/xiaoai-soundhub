@@ -688,7 +688,7 @@ body.app-busy .card {
   padding: 40px 0;
 }
 
-/* Modal Overlay & Card */
+/* Modal Overlay & Card (自适应屏幕视口与滚动优化) */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -699,18 +699,94 @@ body.app-busy .card {
   align-items: center;
   justify-content: center;
   z-index: 9999;
+  overflow-y: auto;
+  padding: 20px 16px;
+  box-sizing: border-box;
 }
 
 .auth-card {
   background: #1e293b;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
-  padding: 32px 28px;
+  padding: 28px 24px;
   width: 90%;
-  max-width: 400px;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-sizing: border-box;
   text-align: center;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  margin: auto;
+}
+
+/* 偏好与系统设置专属模态窗（固定顶底 + 中间平滑滚动） */
+.settings-modal-card {
+  width: 95% !important;
+  max-width: 580px !important;
+  max-height: 85vh !important;
+  height: 85vh;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  text-align: left !important;
+}
+
+.modal-header-fixed {
+  padding: 16px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #1e293b;
+  flex-shrink: 0;
+}
+
+.btn-close-modal {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.btn-close-modal:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.modal-body-scrollable {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-body-scrollable::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body-scrollable::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.modal-footer-fixed {
+  padding: 14px 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #16202e;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 @keyframes modalPop {
