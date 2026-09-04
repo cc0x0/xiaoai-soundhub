@@ -85,6 +85,9 @@ export interface MusicItem {
   img?: string;
   source: string;
   raw?: Record<string, unknown>;
+  /** Direct audio stream URL if already resolved by client (e.g. App pre-listening) */
+  streamUrl?: string;
+  url?: string;
   /**
    * Copies of this exact recording found on other platforms during an
    * aggregated search. Lets resolution fall back without searching again —

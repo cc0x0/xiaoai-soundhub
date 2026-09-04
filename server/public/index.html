@@ -86,19 +86,31 @@
 
       <!-- 右侧栏：全网音乐搜索与投播 -->
       <section class="card music-panel">
-        <div class="card-header">
-          <h2>🔍 全网音乐搜索 &amp; 投播</h2>
-          <div class="source-tag" id="active-source-badge">音源脚本: 加载中</div>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <h2 style="margin: 0;">🔍 全网音乐搜索 &amp; 投播</h2>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 12px; color: var(--text-muted);">⚡ 运行脚本:</span>
+            <select id="main-active-source-select" style="padding: 4px 8px; background: rgba(255,255,255,0.08); border: 1px solid var(--border-color); color: #60a5fa; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+              <option value="lx-v5.js">⚡ lx-v5.js (全平台)</option>
+              <option value="xh.js">🌟 xh.js (星海)</option>
+              <option value="yehua.js">🌷 yehua.js (野花)</option>
+            </select>
+          </div>
         </div>
 
         <!-- 音源渠道选择器 (聚合搜索 / 指定平台) -->
-        <div class="source-picker" id="source-picker">
-          <span class="source-picker-label">🎚️ 搜索音源</span>
-          <div class="source-tabs" id="source-tabs">
-            <span class="source-tab-skeleton"></span>
-            <span class="source-tab-skeleton"></span>
-            <span class="source-tab-skeleton"></span>
+        <div class="source-picker" id="source-picker" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span class="source-picker-label">🎚️ 搜索音源</span>
+            <div class="source-tabs" id="source-tabs">
+              <span class="source-tab-skeleton"></span>
+              <span class="source-tab-skeleton"></span>
+              <span class="source-tab-skeleton"></span>
+            </div>
           </div>
+          <button type="button" id="btn-set-voice-source" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; border-radius: 6px; white-space: nowrap;" title="将当前选中的搜索平台同步设为小爱音箱语音点歌默认源">
+            🎙️ 设为小爱语音默认源
+          </button>
         </div>
 
         <!-- 搜索栏 -->
@@ -272,48 +284,11 @@
       </div>
 
       <div class="settings-field">
-        <label class="settings-label">当前运行音源脚本 (sources/*.js)</label>
-        <select id="user-pref-active-source" class="settings-input">
-          <option value="lx-v5.js">⚡ lx-v5.js (全平台六合一，推荐)</option>
-          <option value="xh.js">🌟 xh.js (星海音乐源)</option>
-          <option value="yehua.js">🌷 yehua.js (野花源)</option>
-        </select>
-        <div class="settings-hint">
-          服务端 Node 沙箱执行的核心解析插件。切换保存后即刻热重载。
-        </div>
-      </div>
-
-      <div class="settings-field">
-        <label class="settings-label">默认搜索音源渠道</label>
-        <select id="user-pref-search-platform" class="settings-input">
-          <option value="all">🔀 聚合搜索 (全部平台并发，按匹配度排序)</option>
-          <option value="kw">🎵 酷我音乐</option>
-          <option value="tx">🐧 QQ音乐</option>
-          <option value="kg">🎤 酷狗音乐</option>
-          <option value="mg">📻 咪咕音乐</option>
-          <option value="wy">☁️ 网易云音乐</option>
-        </select>
-        <div class="settings-hint">
-          小爱音箱语音点歌 (如"播放街角的晚风") 也会走这里选定的音源渠道。
-        </div>
-      </div>
-
-      <div class="settings-field">
         <label class="settings-label">首选播放音质</label>
         <select id="user-pref-quality" class="settings-input">
           <option value="320k">🎵 320k 高品质 MP3 (推荐，极速流畅)</option>
           <option value="flac">💎 FLAC 无损音质 (平台不支持时自动降级)</option>
           <option value="128k">⚡ 128k 标准流畅</option>
-        </select>
-      </div>
-
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">TTS 语音广播默认前导提示音</label>
-        <select id="user-pref-chime" style="width: 100%; box-sizing: border-box; padding: 10px; background: #1a1a24; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; font-size: 13px;">
-          <option value="dingdong">🔔 经典清脆叮咚 (推荐)</option>
-          <option value="gentle">✨ 温暖和弦声</option>
-          <option value="marimba">💧 灵动水滴声</option>
-          <option value="none">🚫 无提示音 (直接播报)</option>
         </select>
       </div>
 

@@ -34,6 +34,8 @@ export interface CastMusicParams {
   duration?: number
   img?: string
   source: string
+  streamUrl?: string
+  url?: string
   raw?: any
 }
 

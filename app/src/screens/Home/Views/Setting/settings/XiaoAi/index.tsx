@@ -181,14 +181,15 @@ export default memo(() => {
               style={[
                 styles.choiceChip,
                 { borderColor: active ? theme['c-primary'] : theme['c-300'] ?? theme['c-200'] },
-                active && { backgroundColor: `${theme['c-primary']}20` },
+                active && { backgroundColor: theme['c-primary'] },
               ]}
               onPress={() => { onPick(opt.value) }}
               disabled={syncing}
             >
               <Text
                 size={12}
-                color={active ? theme['c-primary'] : theme['c-font-label']}
+                color={active ? '#ffffff' : theme['c-font-label']}
+                style={active ? { fontWeight: 'bold' } : undefined}
               >
                 {opt.label}
               </Text>

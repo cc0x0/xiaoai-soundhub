@@ -102,6 +102,7 @@ export const toCastParams = (rawInput: any): MapResult => {
   const meta = musicInfo.meta ?? {}
   const interval = musicInfo.interval == null ? null : String(musicInfo.interval)
   const duration = parseIntervalToSeconds(interval)
+  const directUrl = (musicInfo as any).streamUrl || (musicInfo as any).url || (musicInfo as any).playUrl
 
   return {
     ok: true,
@@ -114,6 +115,7 @@ export const toCastParams = (rawInput: any): MapResult => {
       duration: duration > 0 ? duration : undefined,
       img: meta.picUrl ? String(meta.picUrl) : undefined,
       source,
+      streamUrl: typeof directUrl === 'string' && directUrl.startsWith('http') ? directUrl : undefined,
       raw: {
         id: platformId,
         songmid: platformId,

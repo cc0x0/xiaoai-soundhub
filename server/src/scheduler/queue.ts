@@ -108,6 +108,12 @@ export class PlayScheduler {
     if (list.length === 0) {
       return { ok: false, reason: 'not_available', message: '当前播放队列为空' };
     }
+    // 🛑 单曲播放防死循环：如果列表只有 1 首歌曲，播放完毕后直接停止并清空，不单曲重复回放！
+    if (list.length <= 1) {
+      console.log(`[PlayScheduler] 音箱 [${did}] 单曲播放完毕，自动安全结束（不自动循环）`);
+      await this.stop(did, client);
+      return { ok: true, message: '单曲播放完毕，已正常停止' };
+    }
     const current = this.currentIndex.get(did) || 0;
     const nextIdx = (current + 1) % list.length;
     this.currentIndex.set(did, nextIdx);
@@ -212,15 +218,25 @@ export class PlayScheduler {
       `[PlayScheduler] 音箱 [${did}] 开始解析歌曲: ${music.singer} - ${music.name} [音源: ${music.source}]`
     );
 
-    // 1. 获取音源直链（严格沿用该曲目自身所属音源，不擅自换源）
+    // 1. 获取音源直链（若客户端已试听成功并携带直链，支持极速直通，免二次解析）
     const quality = this.didQuality.get(did) || '320k';
     const userId = this.didUserId.get(did);
     const allowCrossSource = this.allowCrossSourceFor(userId);
-    const urlRes = await this.sourceEngine.getMusicUrl(music, {
-      quality,
-      allowCrossSource,
-      credentials: this.credentialsFor(userId),
-    });
+
+    let urlRes: any = null;
+    const directUrl = music.streamUrl || music.url;
+    if (directUrl && typeof directUrl === 'string' && (directUrl.startsWith('http://') || directUrl.startsWith('https://'))) {
+      console.log(
+        `[PlayScheduler] ⚡ 音箱 [${did}] 收到客户端直通有效直链，直接投播: ${music.singer} - ${music.name}`
+      );
+      urlRes = { url: directUrl, resolvedSource: music.source, crossSource: false };
+    } else {
+      urlRes = await this.sourceEngine.getMusicUrl(music, {
+        quality,
+        allowCrossSource,
+        credentials: this.credentialsFor(userId),
+      });
+    }
     if (!urlRes || !urlRes.url) {
       console.warn(
         `[PlayScheduler] 无法获取歌曲播放直链: ${music.name} [音源: ${music.source}] 原因: ${urlRes?.reason || 'unknown'}`

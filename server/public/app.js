@@ -267,6 +267,60 @@ function bindEvents() {
   document.getElementById('btn-save-user-settings')?.addEventListener('click', saveUserSettings);
   document.getElementById('btn-save-cred')?.addEventListener('click', saveSourceCredential);
 
+  // 外置音源脚本快速切换
+  document.getElementById('main-active-source-select')?.addEventListener('change', async (e) => {
+    const newSource = e.target.value;
+    try {
+      const res = await authFetch('/api/user/settings', {
+        method: 'POST',
+        body: JSON.stringify({ active_source: newSource })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`⚡ 音源脚本已切换为 ${newSource} 并热重载生效`, 'success');
+        setTimeout(fetchSources, 500);
+      } else {
+        showToast(json.error || '切换失败', 'error');
+      }
+    } catch (err) {
+      showToast(`切换异常: ${err.message}`, 'error');
+    }
+  });
+
+  // 外置 TTS 提示音更改持久化
+  document.getElementById('tts-chime-select')?.addEventListener('change', async (e) => {
+    const newChime = e.target.value;
+    try {
+      await authFetch('/api/user/settings', {
+        method: 'POST',
+        body: JSON.stringify({ default_chime: newChime, enable_tts_chime: newChime !== 'none' ? 1 : 0 })
+      });
+      showToast('🔔 TTS 默认提示音已保存', 'info', 1500);
+    } catch {}
+  });
+
+  // 外置小爱语音默认音源一键设为当前选中的 Tab
+  document.getElementById('btn-set-voice-source')?.addEventListener('click', async () => {
+    const targetPlatform = activeSearchSource || 'all';
+    const platformNameMap = { all: '聚合全网', kw: '酷我音乐', tx: 'QQ音乐', kg: '酷狗音乐', mg: '咪咕音乐', wy: '网易云' };
+    const name = platformNameMap[targetPlatform] || targetPlatform;
+    try {
+      const res = await authFetch('/api/user/settings', {
+        method: 'POST',
+        body: JSON.stringify({ search_platform: targetPlatform })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`🎙️ 已将 [${name}] 设为小爱音箱语音点歌默认源！`, 'success');
+        updateVoiceSourceButtonLabel(targetPlatform);
+      } else {
+        showToast(json.error || '设置失败', 'error');
+      }
+    } catch (err) {
+      showToast(`设置异常: ${err.message}`, 'error');
+    }
+  });
+
   // 快捷常用语
   document.querySelectorAll('.chip').forEach((chip) => {
     chip.addEventListener('click', () => {
@@ -340,14 +394,16 @@ async function loadUserSettings() {
       const qualitySelect = document.getElementById('user-pref-quality');
       if (qualitySelect && s.preferred_quality) qualitySelect.value = s.preferred_quality;
 
-      const chimeSelect = document.getElementById('user-pref-chime');
-      if (chimeSelect && s.default_chime) chimeSelect.value = s.default_chime;
+      // 同步外置的 TTS 前导提示音
+      const ttsChimeSelect = document.getElementById('tts-chime-select');
+      if (ttsChimeSelect && s.default_chime) ttsChimeSelect.value = s.default_chime;
 
-      const platformSelect = document.getElementById('user-pref-search-platform');
-      if (platformSelect) platformSelect.value = s.search_platform || 'all';
+      // 同步外置的运行脚本
+      const mainSourceSelect = document.getElementById('main-active-source-select');
+      if (mainSourceSelect && s.active_source) mainSourceSelect.value = s.active_source;
 
-      const activeSourceSelect = document.getElementById('user-pref-active-source');
-      if (activeSourceSelect && s.active_source) activeSourceSelect.value = s.active_source;
+      // 更新按钮指示当前小爱默认点歌源
+      updateVoiceSourceButtonLabel(s.search_platform || 'all');
 
       const policySelect = document.getElementById('user-pref-fallback-policy');
       if (policySelect) policySelect.value = s.fallback_policy || 'cross_source';
@@ -487,15 +543,26 @@ window.clearSourceCredential = async function (platformId) {
   }
 };
 
+function updateVoiceSourceButtonLabel(currentPlatform) {
+  const btn = document.getElementById('btn-set-voice-source');
+  if (!btn) return;
+  const platformNameMap = { all: '聚合全网', kw: '酷我音乐', tx: 'QQ音乐', kg: '酷狗音乐', mg: '咪咕音乐', wy: '网易云' };
+  const name = platformNameMap[currentPlatform] || currentPlatform;
+  btn.setAttribute('data-voice-platform', currentPlatform);
+  btn.innerHTML = `🎙️ 小爱默认: <span style="color:#34d399;font-weight:600;">${name}</span> (点此设为当前Tab)`;
+}
+
 async function saveUserSettings() {
   const prefRaw = document.getElementById('user-pref-prefixes').value.trim();
   const stopRaw = document.getElementById('user-pref-stop-words').value.trim();
   const preferred_quality = document.getElementById('user-pref-quality').value;
-  const default_chime = document.getElementById('user-pref-chime').value;
-  const search_platform = document.getElementById('user-pref-search-platform')?.value || 'all';
   const fallback_policy = document.getElementById('user-pref-fallback-policy')?.value || 'cross_source';
 
-  const active_source = document.getElementById('user-pref-active-source')?.value || 'lx-v5.js';
+  const default_chime = document.getElementById('tts-chime-select')?.value || 'dingdong';
+  const active_source = document.getElementById('main-active-source-select')?.value || 'lx-v5.js';
+  const btnVoice = document.getElementById('btn-set-voice-source');
+  const search_platform = btnVoice?.getAttribute('data-voice-platform') || activeSearchSource || 'all';
+
   const custom_prefixes = prefRaw ? prefRaw.split(/[,，\s]+/).filter(Boolean) : [];
   const custom_stop_keywords = stopRaw ? stopRaw.split(/[,，\s]+/).filter(Boolean) : [];
 
