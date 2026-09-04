@@ -127,7 +127,7 @@ async function authFetch(url, options = {}) {
 document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
   await initUserProfile();
-  await Promise.all([fetchSources(), fetchDevices()]);
+  await Promise.all([fetchSources(), fetchDevices(), loadUserSettings()]);
   fetchStatus();
 
   // 定时拉取播放状态
@@ -144,8 +144,14 @@ async function fetchSources() {
     const json = await res.json();
     if (!json.ok || !json.data) throw new Error('音源列表加载失败');
 
-    const { aggregate, platforms, current } = json.data;
+    const { aggregate, platforms, current, activeScript } = json.data;
     availableSources = [aggregate, ...platforms];
+
+    // 同步回显小爱语音解析运行脚本
+    const mainSelect = document.getElementById('main-active-source-select');
+    if (mainSelect && activeScript) {
+      mainSelect.value = activeScript;
+    }
 
     // A stored choice wins, so a reload keeps the channel the user picked.
     const known = availableSources.some((s) => s.id === activeSearchSource);
@@ -299,28 +305,6 @@ function bindEvents() {
     } catch {}
   });
 
-  // 外置小爱语音默认音源一键设为当前选中的 Tab
-  document.getElementById('btn-set-voice-source')?.addEventListener('click', async () => {
-    const targetPlatform = activeSearchSource || 'all';
-    const platformNameMap = { all: '聚合全网', kw: '酷我音乐', tx: 'QQ音乐', kg: '酷狗音乐', mg: '咪咕音乐', wy: '网易云' };
-    const name = platformNameMap[targetPlatform] || targetPlatform;
-    try {
-      const res = await authFetch('/api/user/settings', {
-        method: 'POST',
-        body: JSON.stringify({ search_platform: targetPlatform })
-      });
-      const json = await res.json();
-      if (json.ok) {
-        showToast(`🎙️ 已将 [${name}] 设为小爱音箱语音点歌默认源！`, 'success');
-        updateVoiceSourceButtonLabel(targetPlatform);
-      } else {
-        showToast(json.error || '设置失败', 'error');
-      }
-    } catch (err) {
-      showToast(`设置异常: ${err.message}`, 'error');
-    }
-  });
-
   // 快捷常用语
   document.querySelectorAll('.chip').forEach((chip) => {
     chip.addEventListener('click', () => {
@@ -398,12 +382,9 @@ async function loadUserSettings() {
       const ttsChimeSelect = document.getElementById('tts-chime-select');
       if (ttsChimeSelect && s.default_chime) ttsChimeSelect.value = s.default_chime;
 
-      // 同步外置的运行脚本
+      // 同步外置的小爱语音解析脚本
       const mainSourceSelect = document.getElementById('main-active-source-select');
       if (mainSourceSelect && s.active_source) mainSourceSelect.value = s.active_source;
-
-      // 更新按钮指示当前小爱默认点歌源
-      updateVoiceSourceButtonLabel(s.search_platform || 'all');
 
       const policySelect = document.getElementById('user-pref-fallback-policy');
       if (policySelect) policySelect.value = s.fallback_policy || 'cross_source';
@@ -541,17 +522,6 @@ window.clearSourceCredential = async function (platformId) {
   } catch (e) {
     showToast(e.message, 'error');
   }
-};
-
-function updateVoiceSourceButtonLabel(currentPlatform) {
-  const btn = document.getElementById('btn-set-voice-source');
-  if (!btn) return;
-  const platformNameMap = { all: '聚合全网', kw: '酷我音乐', tx: 'QQ音乐', kg: '酷狗音乐', mg: '咪咕音乐', wy: '网易云' };
-  const name = platformNameMap[currentPlatform] || currentPlatform;
-  btn.setAttribute('data-voice-platform', currentPlatform);
-  btn.innerHTML = `🎙️ 小爱默认: <span style="color:#34d399;font-weight:600;">${name}</span> (点此设为当前Tab)`;
-}
-
 async function saveUserSettings() {
   const prefRaw = document.getElementById('user-pref-prefixes').value.trim();
   const stopRaw = document.getElementById('user-pref-stop-words').value.trim();
@@ -560,8 +530,7 @@ async function saveUserSettings() {
 
   const default_chime = document.getElementById('tts-chime-select')?.value || 'dingdong';
   const active_source = document.getElementById('main-active-source-select')?.value || 'lx-v5.js';
-  const btnVoice = document.getElementById('btn-set-voice-source');
-  const search_platform = btnVoice?.getAttribute('data-voice-platform') || activeSearchSource || 'all';
+  const search_platform = activeSearchSource || 'all';
 
   const custom_prefixes = prefRaw ? prefRaw.split(/[,，\s]+/).filter(Boolean) : [];
   const custom_stop_keywords = stopRaw ? stopRaw.split(/[,，\s]+/).filter(Boolean) : [];

@@ -89,28 +89,23 @@
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
           <h2 style="margin: 0;">🔍 全网音乐搜索 &amp; 投播</h2>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="font-size: 12px; color: var(--text-muted);">⚡ 运行脚本:</span>
-            <select id="main-active-source-select" style="padding: 4px 8px; background: rgba(255,255,255,0.08); border: 1px solid var(--border-color); color: #60a5fa; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
-              <option value="lx-v5.js">⚡ lx-v5.js (全平台)</option>
-              <option value="xh.js">🌟 xh.js (星海)</option>
-              <option value="yehua.js">🌷 yehua.js (野花)</option>
+            <span style="font-size: 12px; color: #a1a1aa;">🎙️ 小爱语音解析脚本:</span>
+            <select id="main-active-source-select" style="padding: 5px 10px; background: rgba(255,255,255,0.08); border: 1px solid var(--border-color); color: #60a5fa; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+              <option value="lx-v5.js">⚡ lx-v5.js (全平台六合一，推荐)</option>
+              <option value="xh.js">🌟 xh.js (星海音乐源)</option>
+              <option value="yehua.js">🌷 yehua.js (野花稳定源)</option>
             </select>
           </div>
         </div>
 
         <!-- 音源渠道选择器 (聚合搜索 / 指定平台) -->
-        <div class="source-picker" id="source-picker" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <span class="source-picker-label">🎚️ 搜索音源</span>
-            <div class="source-tabs" id="source-tabs">
-              <span class="source-tab-skeleton"></span>
-              <span class="source-tab-skeleton"></span>
-              <span class="source-tab-skeleton"></span>
-            </div>
+        <div class="source-picker" id="source-picker">
+          <span class="source-picker-label">🎚️ 网页搜索平台</span>
+          <div class="source-tabs" id="source-tabs">
+            <span class="source-tab-skeleton"></span>
+            <span class="source-tab-skeleton"></span>
+            <span class="source-tab-skeleton"></span>
           </div>
-          <button type="button" id="btn-set-voice-source" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; border-radius: 6px; white-space: nowrap;" title="将当前选中的搜索平台同步设为小爱音箱语音点歌默认源">
-            🎙️ 设为小爱语音默认源
-          </button>
         </div>
 
         <!-- 搜索栏 -->
@@ -338,7 +333,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260902_01"></script>
+  <script src="app.js?v=20260904_03"></script>
 </body>
 </html>
 
