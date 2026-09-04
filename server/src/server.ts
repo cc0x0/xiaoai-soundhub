@@ -253,6 +253,38 @@ export async function bootstrap() {
     }
   });
 
+  // 网页端本机试听取链接口 (直接返回代理音频流，不操作小爱音箱)
+  app.post('/api/preview-url', async (req: Request, res: Response) => {
+    try {
+      const { music, quality = '128k' } = req.body;
+      if (!music) {
+        res.status(400).json({ ok: false, error: '缺少歌曲元数据 (music is required)' });
+        return;
+      }
+      const userId = resolveUserId(req);
+      const urlRes = await sourceEngine.getMusicUrl(music, {
+        quality,
+        allowCrossSource: true,
+      });
+      if (!urlRes || !urlRes.url) {
+        res.status(422).json({ ok: false, error: urlRes?.message || '无法获取该曲目的试听直链' });
+        return;
+      }
+      const proxyUrl = StreamProxy.buildProxyUrl(publicBaseUrl, urlRes.url, urlRes.headers);
+      res.json({
+        ok: true,
+        data: {
+          url: proxyUrl,
+          rawUrl: urlRes.url,
+          resolvedSource: urlRes.resolvedSource || music.source,
+          crossSource: !!urlRes.crossSource,
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // 投播歌曲 / 歌单接口
   app.post('/api/play', async (req: Request, res: Response) => {
     try {

@@ -20,9 +20,10 @@
           <p class="subtitle">小爱全屋音乐播放与智能语音控制中心</p>
         </div>
       </div>
-      <div style="display: flex; align-items: center; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <button class="btn btn-secondary btn-sm" id="btn-open-bind-modal">🔑 绑定米家音箱</button>
         <button class="btn btn-secondary btn-sm" id="btn-open-settings-modal">⚙️ 偏好与系统设置</button>
+        <button class="btn btn-secondary btn-sm" id="btn-logout" title="退出当前账号登录状态" style="color: #f87171; border-color: rgba(239, 68, 68, 0.35);">🚪 退出</button>
       </div>
     </header>
 
@@ -123,6 +124,22 @@
           <span class="hot-chip">王菲</span>
         </div>
 
+        <!-- 网页端本机试听栏 (点击列表中🎧试听时唤起，仅电脑本地浏览器出声) -->
+        <div class="web-preview-bar" id="web-preview-bar" style="display: none; background: rgba(15, 23, 42, 0.95); border: 1px solid #3b82f6; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; align-items: center; justify-content: space-between; gap: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);">
+          <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0; flex: 1;">
+            <span style="font-size: 20px; flex-shrink: 0;">🎧</span>
+            <div style="overflow: hidden; min-width: 0;">
+              <div style="font-size: 13px; font-weight: 600; color: #60a5fa; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" id="preview-song-title">本机耳机试听中...</div>
+              <div style="font-size: 11px; color: #94a3b8; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" id="preview-song-artist">仅当前电脑浏览器出声，小爱音箱不响</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+            <audio id="web-preview-audio" controls style="height: 32px; max-width: 220px; outline: none;"></audio>
+            <button class="btn btn-primary btn-sm" id="btn-cast-preview-song" style="font-size: 11px; padding: 5px 10px; white-space: nowrap;">📢 投这首到音箱</button>
+            <button class="btn-close-modal" id="btn-close-preview" title="关闭试听" style="font-size: 14px; padding: 2px 6px; cursor: pointer;">✕</button>
+          </div>
+        </div>
+
         <!-- 搜索结果列表 -->
         <div class="search-results-wrapper">
           <div class="search-results" id="search-results">
@@ -134,13 +151,13 @@
           </div>
         </div>
 
-        <!-- 底部控制栏容器 -->
+        <!-- 底部控制栏容器：小爱音箱专属遥控器 -->
         <div class="player-bar-container" id="player-bar-container">
           <!-- 单音箱播放状态条 -->
           <div class="player-bar" id="player-bar">
             <div class="track-info">
-              <span class="track-title" id="player-title">暂无播放歌曲</span>
-              <span class="track-artist" id="player-artist">小爱音箱待命</span>
+              <span class="track-title" id="player-title">🔊 音箱待命</span>
+              <span class="track-artist" id="player-artist">小爱音箱遥控器 (暂未放歌)</span>
             </div>
             <div class="player-controls">
               <button class="control-btn" id="btn-prev" title="上一首">⏮️</button>
@@ -333,7 +350,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260904_04"></script>
+  <script src="app.js?v=20260904_05"></script>
 </body>
 </html>
 

@@ -248,6 +248,36 @@ function bindEvents() {
     if (e.key === 'Enter') doSearch();
   });
 
+  // 退出登录
+  document.getElementById('btn-logout')?.addEventListener('click', () => {
+    localStorage.removeItem('soundhub_token');
+    localStorage.removeItem('soundhub_user');
+    showToast('👋 已退出登录', 'info', 1500);
+    setTimeout(() => {
+      window.location.href = '/login';
+    }, 400);
+  });
+
+  // 网页端试听条播控
+  document.getElementById('btn-close-preview')?.addEventListener('click', () => {
+    const audioEl = document.getElementById('web-preview-audio');
+    if (audioEl) {
+      audioEl.pause();
+      audioEl.src = '';
+    }
+    const barEl = document.getElementById('web-preview-bar');
+    if (barEl) barEl.style.display = 'none';
+    currentPreviewSong = null;
+  });
+
+  document.getElementById('btn-cast-preview-song')?.addEventListener('click', () => {
+    if (currentPreviewSong) {
+      castSong(currentPreviewSong);
+    } else {
+      showToast('当前没有正在试听的歌曲', 'warning');
+    }
+  });
+
   // 米家账号绑定弹窗
   document.getElementById('btn-open-bind-modal')?.addEventListener('click', () => {
     const m = document.getElementById('bind-mi-modal');
@@ -1027,6 +1057,57 @@ const PLATFORM_LABELS = { all: '聚合', kw: '酷我', tx: 'QQ', kg: '酷狗', m
  * single platform afterwards can easily answer first — without this guard the
  * slower earlier response lands last and overwrites the newer results.
  */
+let currentPreviewSong = null;
+
+async function previewSong(song, btn) {
+  if (!song) return;
+  currentPreviewSong = song;
+  const titleEl = document.getElementById('preview-song-title');
+  const artistEl = document.getElementById('preview-song-artist');
+  const audioEl = document.getElementById('web-preview-audio');
+  const barEl = document.getElementById('web-preview-bar');
+
+  if (barEl) barEl.style.display = 'flex';
+  if (titleEl) titleEl.innerText = `🎧 正在获取试听: ${song.name}`;
+  if (artistEl) artistEl.innerText = `${song.singer} • 正在解析音频流...`;
+
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '⏳ 取链中';
+
+  try {
+    const res = await authFetch('/api/preview-url', {
+      method: 'POST',
+      body: JSON.stringify({ music: song, quality: '128k' }),
+    });
+    const json = await res.json();
+    if (!json.ok || !json.data?.url) {
+      throw new Error(json.error || '未能获取该歌曲的试听直链');
+    }
+
+    const streamUrl = json.data.url;
+    song.streamUrl = streamUrl; // 直通缓存
+
+    if (titleEl) titleEl.innerText = `🎧 正在试听: ${song.name}`;
+    if (artistEl) artistEl.innerText = `${song.singer} • ${song.albumName || '单曲'} (${json.data.crossSource ? '跨源解析' : '原平台'})`;
+
+    if (audioEl) {
+      audioEl.src = streamUrl;
+      audioEl.play().catch((e) => {
+        console.warn('Audio auto-play blocked by browser policy:', e);
+      });
+    }
+    showToast(`🎧 已在浏览器为您播放试听: ${song.name}`, 'info', 2000);
+  } catch (err) {
+    showToast(`试听失败: ${err.message}`, 'error');
+    if (titleEl) titleEl.innerText = '试听失败';
+    if (artistEl) artistEl.innerText = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
 let latestSearchKey = '';
 
 async function doSearch() {
@@ -1073,11 +1154,17 @@ async function doSearch() {
               </div>
               <div class="song-meta">${escapeHtml(song.singer)} • ${escapeHtml(song.albumName || '单曲')} • ${escapeHtml(song.interval || '')}</div>
             </div>
-            <button class="btn-cast">🔊 投播小爱</button>
+            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+              <button class="btn btn-secondary btn-sm btn-preview-song" title="仅在电脑当前浏览器耳机试听，不影响音箱" style="font-size:12px; padding:6px 10px; cursor:pointer;">🎧 试听</button>
+              <button class="btn-cast">🔊 投播小爱</button>
+            </div>
           `;
 
+          const previewBtn = item.querySelector('.btn-preview-song');
+          previewBtn?.addEventListener('click', () => previewSong(song, previewBtn));
+
           const castBtn = item.querySelector('.btn-cast');
-          castBtn.addEventListener('click', () => castSong(song, castBtn));
+          castBtn?.addEventListener('click', () => castSong(song, castBtn));
           container.appendChild(item);
         });
       } else if (json.ok) {
