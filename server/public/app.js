@@ -522,6 +522,8 @@ window.clearSourceCredential = async function (platformId) {
   } catch (e) {
     showToast(e.message, 'error');
   }
+};
+
 async function saveUserSettings() {
   const prefRaw = document.getElementById('user-pref-prefixes').value.trim();
   const stopRaw = document.getElementById('user-pref-stop-words').value.trim();
