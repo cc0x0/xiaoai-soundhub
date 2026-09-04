@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>XiaoAi SoundHub - 小爱声枢控制台</title>
-  <link rel="stylesheet" href="style.css?v=20260903_02">
+  <link rel="stylesheet" href="style.css?v=20260904_06">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -124,19 +124,46 @@
           <span class="hot-chip">王菲</span>
         </div>
 
-        <!-- 网页端本机试听栏 (点击列表中🎧试听时唤起，仅电脑本地浏览器出声) -->
-        <div class="web-preview-bar" id="web-preview-bar" style="display: none; background: rgba(15, 23, 42, 0.95); border: 1px solid #3b82f6; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; align-items: center; justify-content: space-between; gap: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);">
-          <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0; flex: 1;">
-            <span style="font-size: 20px; flex-shrink: 0;">🎧</span>
-            <div style="overflow: hidden; min-width: 0;">
-              <div style="font-size: 13px; font-weight: 600; color: #60a5fa; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" id="preview-song-title">本机耳机试听中...</div>
-              <div style="font-size: 11px; color: #94a3b8; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;" id="preview-song-artist">仅当前电脑浏览器出声，小爱音箱不响</div>
+        <!-- 网页端本机试听栏 (现代化高保真宽幅流线型播放器) -->
+        <div class="web-preview-bar" id="web-preview-bar" style="display: none;">
+          <audio id="web-preview-audio" preload="auto"></audio>
+
+          <!-- 1. 左侧：歌曲信息 (仅保留1个精致单耳机图标) -->
+          <div class="preview-track-meta">
+            <div class="preview-icon-wrapper">
+              <span id="preview-play-icon">🎧</span>
+            </div>
+            <div class="preview-text-group">
+              <div class="preview-song-title" id="preview-song-title">正在加载...</div>
+              <div class="preview-song-artist" id="preview-song-artist">准备就绪</div>
             </div>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-            <audio id="web-preview-audio" controls style="height: 32px; max-width: 220px; outline: none;"></audio>
-            <button class="btn btn-primary btn-sm" id="btn-cast-preview-song" style="font-size: 11px; padding: 5px 10px; white-space: nowrap;">📢 投这首到音箱</button>
-            <button class="btn-close-modal" id="btn-close-preview" title="关闭试听" style="font-size: 14px; padding: 2px 6px; cursor: pointer;">✕</button>
+
+          <!-- 2. 中间：宽幅可拖拽进度条与播放/暂停控制 -->
+          <div class="preview-center-controls">
+            <button class="preview-btn-toggle" id="btn-preview-toggle" title="播放/暂停">▶</button>
+            <span class="preview-time" id="preview-current-time">00:00</span>
+            <div class="preview-progress-container" id="preview-progress-container" title="点击或拖拽跳转进度">
+              <div class="preview-progress-bar" id="preview-progress-bar">
+                <div class="preview-progress-handle"></div>
+              </div>
+            </div>
+            <span class="preview-time" id="preview-total-time">00:00</span>
+          </div>
+
+          <!-- 3. 右侧：操作区 (音量滑条、⬇️下载、🔊投播、✕关闭) -->
+          <div class="preview-right-actions">
+            <div class="preview-volume-group" title="调节试听音量">
+              <span id="preview-volume-icon" style="cursor: pointer; font-size: 13px;">🔊</span>
+              <input type="range" id="preview-volume-slider" min="0" max="1" step="0.05" value="1" class="preview-volume-range">
+            </div>
+            <button class="btn-preview-action btn-preview-download" id="btn-preview-download" title="下载当前试听歌曲 MP3 到电脑">
+              ⬇️ 下载
+            </button>
+            <button class="btn-preview-action btn-preview-cast" id="btn-cast-preview-song" title="将这首歌曲投播到小爱音箱">
+              🔊 投播
+            </button>
+            <button class="btn-preview-close" id="btn-close-preview" title="关闭试听">✕</button>
           </div>
         </div>
 
@@ -350,7 +377,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260904_05"></script>
+  <script src="app.js?v=20260904_06"></script>
 </body>
 </html>
 

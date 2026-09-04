@@ -258,25 +258,8 @@ function bindEvents() {
     }, 400);
   });
 
-  // 网页端试听条播控
-  document.getElementById('btn-close-preview')?.addEventListener('click', () => {
-    const audioEl = document.getElementById('web-preview-audio');
-    if (audioEl) {
-      audioEl.pause();
-      audioEl.src = '';
-    }
-    const barEl = document.getElementById('web-preview-bar');
-    if (barEl) barEl.style.display = 'none';
-    currentPreviewSong = null;
-  });
-
-  document.getElementById('btn-cast-preview-song')?.addEventListener('click', () => {
-    if (currentPreviewSong) {
-      castSong(currentPreviewSong);
-    } else {
-      showToast('当前没有正在试听的歌曲', 'warning');
-    }
-  });
+  // 网页端试听条高保真播放器控制初始化
+  initPreviewPlayer();
 
   // 米家账号绑定弹窗
   document.getElementById('btn-open-bind-modal')?.addEventListener('click', () => {
@@ -1059,6 +1042,167 @@ const PLATFORM_LABELS = { all: '聚合', kw: '酷我', tx: 'QQ', kg: '酷狗', m
  */
 let currentPreviewSong = null;
 
+function formatTime(seconds) {
+  if (!seconds || isNaN(seconds) || seconds < 0) return '00:00';
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function initPreviewPlayer() {
+  const audioEl = document.getElementById('web-preview-audio');
+  const barEl = document.getElementById('web-preview-bar');
+  const toggleBtn = document.getElementById('btn-preview-toggle');
+  const currentTimeEl = document.getElementById('preview-current-time');
+  const totalTimeEl = document.getElementById('preview-total-time');
+  const progressBar = document.getElementById('preview-progress-bar');
+  const progressContainer = document.getElementById('preview-progress-container');
+  const volumeSlider = document.getElementById('preview-volume-slider');
+  const volumeIcon = document.getElementById('preview-volume-icon');
+  const downloadBtn = document.getElementById('btn-preview-download');
+  const castBtn = document.getElementById('btn-cast-preview-song');
+  const closeBtn = document.getElementById('btn-close-preview');
+
+  if (!audioEl) return;
+
+  // 播放 / 暂停切换
+  toggleBtn?.addEventListener('click', () => {
+    if (!audioEl.src) return;
+    if (audioEl.paused) {
+      audioEl.play().catch((err) => console.warn('Audio play error:', err));
+    } else {
+      audioEl.pause();
+    }
+  });
+
+  // 音频状态监听
+  audioEl.addEventListener('play', () => {
+    if (toggleBtn) toggleBtn.innerHTML = '⏸';
+  });
+
+  audioEl.addEventListener('pause', () => {
+    if (toggleBtn) toggleBtn.innerHTML = '▶';
+  });
+
+  audioEl.addEventListener('timeupdate', () => {
+    if (isDraggingProgress) return;
+    const cur = audioEl.currentTime || 0;
+    const dur = audioEl.duration || 0;
+    if (currentTimeEl) currentTimeEl.textContent = formatTime(cur);
+    if (dur > 0) {
+      if (totalTimeEl) totalTimeEl.textContent = formatTime(dur);
+      if (progressBar) progressBar.style.width = `${Math.min(100, (cur / dur) * 100)}%`;
+    }
+  });
+
+  audioEl.addEventListener('loadedmetadata', () => {
+    if (totalTimeEl && audioEl.duration) {
+      totalTimeEl.textContent = formatTime(audioEl.duration);
+    }
+  });
+
+  audioEl.addEventListener('ended', () => {
+    if (toggleBtn) toggleBtn.innerHTML = '▶';
+    if (progressBar) progressBar.style.width = '0%';
+    if (currentTimeEl) currentTimeEl.textContent = '00:00';
+  });
+
+  // 点击与拖拽跳转进度条
+  let isDraggingProgress = false;
+
+  function seekByMouseEvent(e) {
+    if (!audioEl.duration || !progressContainer) return;
+    const rect = progressContainer.getBoundingClientRect();
+    const offsetX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const ratio = Math.max(0, Math.min(1, offsetX / rect.width));
+    audioEl.currentTime = ratio * audioEl.duration;
+    if (progressBar) progressBar.style.width = `${ratio * 100}%`;
+    if (currentTimeEl) currentTimeEl.textContent = formatTime(ratio * audioEl.duration);
+  }
+
+  progressContainer?.addEventListener('mousedown', (e) => {
+    isDraggingProgress = true;
+    seekByMouseEvent(e);
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isDraggingProgress) {
+      seekByMouseEvent(e);
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDraggingProgress) {
+      isDraggingProgress = false;
+    }
+  });
+
+  // 音量调节
+  volumeSlider?.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    audioEl.volume = val;
+    if (val === 0) {
+      volumeIcon.textContent = '🔇';
+    } else if (val < 0.5) {
+      volumeIcon.textContent = '🔉';
+    } else {
+      volumeIcon.textContent = '🔊';
+    }
+  });
+
+  // 静音/恢复切换
+  volumeIcon?.addEventListener('click', () => {
+    if (audioEl.volume > 0) {
+      audioEl.dataset.savedVol = audioEl.volume;
+      audioEl.volume = 0;
+      if (volumeSlider) volumeSlider.value = 0;
+      volumeIcon.textContent = '🔇';
+    } else {
+      const restored = parseFloat(audioEl.dataset.savedVol || '0.8');
+      audioEl.volume = restored;
+      if (volumeSlider) volumeSlider.value = restored;
+      volumeIcon.textContent = restored < 0.5 ? '🔉' : '🔊';
+    }
+  });
+
+  // MP3 下载
+  downloadBtn?.addEventListener('click', () => {
+    if (!currentPreviewSong || !currentPreviewSong.streamUrl) {
+      showToast('当前无可用音频流下载', 'warning');
+      return;
+    }
+    const cleanTitle = (currentPreviewSong.name || 'track').replace(/[\\/:*?"<>|]/g, '_');
+    const cleanArtist = (currentPreviewSong.singer || 'artist').replace(/[\\/:*?"<>|]/g, '_');
+    const filename = `${cleanTitle} - ${cleanArtist}.mp3`;
+
+    const a = document.createElement('a');
+    a.href = currentPreviewSong.streamUrl;
+    a.download = filename;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast(`⬇️ 已触发下载: ${cleanTitle}`, 'success', 2500);
+  });
+
+  // 投播到小爱
+  castBtn?.addEventListener('click', () => {
+    if (currentPreviewSong) {
+      castSong(currentPreviewSong, castBtn);
+    } else {
+      showToast('当前无正在试听的歌曲', 'warning');
+    }
+  });
+
+  // 关闭试听栏
+  closeBtn?.addEventListener('click', () => {
+    audioEl.pause();
+    audioEl.src = '';
+    if (barEl) barEl.style.display = 'none';
+    currentPreviewSong = null;
+  });
+}
+
 async function previewSong(song, btn) {
   if (!song) return;
   currentPreviewSong = song;
@@ -1068,7 +1212,10 @@ async function previewSong(song, btn) {
   const barEl = document.getElementById('web-preview-bar');
 
   if (barEl) barEl.style.display = 'flex';
-  if (titleEl) titleEl.innerText = `🎧 正在获取试听: ${song.name}`;
+  if (titleEl) {
+    titleEl.innerText = song.name;
+    titleEl.title = song.name;
+  }
   if (artistEl) artistEl.innerText = `${song.singer} • 正在解析音频流...`;
 
   const originalHtml = btn.innerHTML;
@@ -1087,9 +1234,16 @@ async function previewSong(song, btn) {
 
     const streamUrl = json.data.url;
     song.streamUrl = streamUrl; // 直通缓存
+    currentPreviewSong.streamUrl = streamUrl;
 
-    if (titleEl) titleEl.innerText = `🎧 正在试听: ${song.name}`;
-    if (artistEl) artistEl.innerText = `${song.singer} • ${song.albumName || '单曲'} (${json.data.crossSource ? '跨源解析' : '原平台'})`;
+    if (titleEl) {
+      titleEl.innerText = song.name;
+      titleEl.title = song.name;
+    }
+    if (artistEl) {
+      artistEl.innerText = `${song.singer} • ${song.albumName || '单曲'} (${json.data.crossSource ? '跨源解析' : '原平台'})`;
+      artistEl.title = artistEl.innerText;
+    }
 
     if (audioEl) {
       audioEl.src = streamUrl;
@@ -1154,16 +1308,16 @@ async function doSearch() {
               </div>
               <div class="song-meta">${escapeHtml(song.singer)} • ${escapeHtml(song.albumName || '单曲')} • ${escapeHtml(song.interval || '')}</div>
             </div>
-            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-              <button class="btn btn-secondary btn-sm btn-preview-song" title="仅在电脑当前浏览器耳机试听，不影响音箱" style="font-size:12px; padding:6px 10px; cursor:pointer;">🎧 试听</button>
-              <button class="btn-cast">🔊 投播小爱</button>
+            <div class="song-actions-group">
+              <button class="btn-song-preview" title="在当前浏览器直接试听">▶ 试听</button>
+              <button class="btn-song-cast" title="投播到小爱音箱">🔊 投播</button>
             </div>
           `;
 
-          const previewBtn = item.querySelector('.btn-preview-song');
+          const previewBtn = item.querySelector('.btn-song-preview');
           previewBtn?.addEventListener('click', () => previewSong(song, previewBtn));
 
-          const castBtn = item.querySelector('.btn-cast');
+          const castBtn = item.querySelector('.btn-song-cast');
           castBtn?.addEventListener('click', () => castSong(song, castBtn));
           container.appendChild(item);
         });
