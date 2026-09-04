@@ -9,7 +9,7 @@ RUN npm config set registry https://registry.npmmirror.com && \
     npm install
 
 COPY src/ ./src
-COPY public/ ./public
+ENV NODE_OPTIONS="--max-old-space-size=512"
 RUN npm run build
 
 # 清理 dev 依赖，保留生产依赖

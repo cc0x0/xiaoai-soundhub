@@ -11,8 +11,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "sourceMap": true
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
